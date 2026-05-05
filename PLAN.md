@@ -3,6 +3,14 @@
 ## Summary
 Build a macOS-only SwiftUI orchestration engine for professional multi-agent coding workflows. SwiftData is the local master repository; CloudKit provides private iCloud backup/sync/restore; `AgentNotes.md` is the project-visible coordination artifact; local CLIs are the first integration surface; API/custom-command providers are fallback. Applied resources: OpenAI docs skill, GitHub orientation skill, prior repo inspection, and official Apple/provider docs.
 
+## Current Handoff Checkpoint
+- As of May 5, 2026, Phases 0 through 6 are implemented and validated, the Phase 7 test-runner crash is fixed, and the implementation checkpoint is committed and pushed as `d11acf9` (`Implement Agenic MVP and stabilize tests`) on `main` / `origin/main`.
+- Last full validation command: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test`.
+- Last passing result bundle: `~/Library/Developer/Xcode/DerivedData/Agenic_Load-Balancer-bsroquvxykavjeetekktvpnwioze/Logs/Test/Test-Agenic Load-Balancer-2026.05.05_17-38-49--0400.xcresult`.
+- The crash fix depends on `AgenicLaunchEnvironment.usesVolatileStore(...)` treating `--uitesting`, `XCTestConfigurationFilePath`, `XCTestSessionIdentifier`, and `XCInjectBundleInto` as volatile-store signals; do not remove this while working on Foundation Models.
+- A global Codex skill named `foundation-models-intelligent-features` is installed at `~/.codex/skills/foundation-models-intelligent-features` and validated. Use it for all Phase 7 Foundation Models implementation work, especially availability gates, `LanguageModelSession`, `@Generable`, streaming partials, and `Tool` calling.
+- Next recommended implementation unit: Phase 7.1, the in-process Foundation Models runner adapter. Keep `#if canImport(FoundationModels)` and `@available(macOS 26.0, *)` boundaries so the project remains buildable when the framework is unavailable to the active SDK.
+
 ## Foundations
 - Convert the Xcode project from multi-platform scaffold to macOS-only and set app/test targets to Swift 6, `SWIFT_STRICT_CONCURRENCY = complete`, and concurrency warnings-as-errors.
 - Keep developer-tool posture for v1: local CLI launching enabled, selected workspace access, secrets in Keychain, no App Store sandbox promise.
