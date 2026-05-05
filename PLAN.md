@@ -1,0 +1,79 @@
+# Agenic Load-Balancer Thorough MVP Plan
+
+## Summary
+Build a macOS-only SwiftUI orchestration engine for professional multi-agent coding workflows. SwiftData is the local master repository; CloudKit provides private iCloud backup/sync/restore; `AgentNotes.md` is the project-visible coordination artifact; local CLIs are the first integration surface; API/custom-command providers are fallback. Applied resources: OpenAI docs skill, GitHub orientation skill, prior repo inspection, and official Apple/provider docs.
+
+## Foundations
+- Convert the Xcode project from multi-platform scaffold to macOS-only and set app/test targets to Swift 6, `SWIFT_STRICT_CONCURRENCY = complete`, and concurrency warnings-as-errors.
+- Keep developer-tool posture for v1: local CLI launching enabled, selected workspace access, secrets in Keychain, no App Store sandbox promise.
+- Use standard SwiftUI/AppKit controls first for Liquid Glass adoption; reserve custom glass for navigation, toolbars, inspectors, setup sheets, and floating command surfaces.
+- Current environment prerequisite: build/test with full Xcode selected, for example `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+
+## Data And Sync
+- SwiftData is canonical for projects, prompt threads, provider profiles, setup state, usage/cost ledgers, routing decisions, run outcomes, accuracy ratings, changelog records, plans, phases, waves, steps, task assignments, handoffs, and snapshots.
+- Configure private CloudKit sync with a dedicated container, default `iCloud.com.zincoverde.Agenic-Load-Balancer`, using `ModelConfiguration(cloudKitDatabase: .private(...))`.
+- Add iCloud CloudKit and Background Modes remote notifications; design CloudKit-compatible models from day one: optional relationships, explicit inverses, no unique-constraint reliance, no deny delete rules, additive schema evolution after production promotion.
+- Treat CloudKit as backup/sync transport, not full historical undo. Add app-level restore snapshots, restore preview, conflict summary, and “restore into new local copy” before replacing active records.
+- Keep API keys/OAuth refresh material out of SwiftData/CloudKit; store only Keychain references, auth status, provider IDs, and setup metadata.
+
+## Concurrency Architecture
+- Use actors for `RoutingEngine`, `ProviderHealthMonitor`, `AgentProcessRunner`, `UsageLedger`, `CloudSyncCoordinator`, `SnapshotRestoreCoordinator`, `ProjectCoordinationActor`, and `ProviderSetupWizard`.
+- Keep all view models `@MainActor`; stream CLI output with `AsyncSequence`/`AsyncStream`; make provider events, score breakdowns, ledger events, CloudKit sync events, and dashboard snapshots `Sendable`.
+- All file coordination for `AgentNotes.md` goes through one actor with atomic writes, append intents, conflict detection, and SwiftData event mirroring.
+
+## Provider Catalog And Setup Wizard
+- Ship a provider catalog seeded from official docs, with install status, version probe, auth probe, supported modes, execution command template, model list source, cost policy, quota policy, and safety notes.
+- Expose local CLI setup for Codex, Claude Code, GitHub Copilot CLI, Gemini CLI, Cursor Agent, Kiro/Amazon Q path, Qwen Code, Mistral Vibe, and OpenCode; expose DeepSeek through API, OpenCode, Claude-compatible env routing, or custom command profile.
+- Setup wizard supports install instructions, user-approved install commands, package-origin warnings, version verification, API key entry, environment variables, CLI login, and OAuth/browser handoffs via `ASWebAuthenticationSession`.
+- Never silently run installer scripts; show source, command, expected binary, verification command, and rollback/uninstall instructions.
+
+## Routing And Dispatch
+- Dispatch mode remains “approve then run.” The app ranks agents, explains why, estimates cost/limit impact, checks availability, checks `AgentNotes.md` coordination risks, then asks for approval.
+- Router scoring inputs: installed/auth status, feature support, task type, workspace write/read mode, model accuracy, latency, current session/token/call pressure, refresh window, cost, reliability, user preference, and recent failure patterns.
+- Execution modes: recommend-only, read/review, plan-only, implementation, repair/debug, test/build, and commit/push checkpoint. Implementation and commit/push modes require explicit approval.
+
+## Dashboard
+- Add a Liquid Glass dashboard with heatmaps for provider/model usage, estimated cost, availability, session time, token/call limits, refresh countdowns, latency, success rate, and accuracy.
+- Accuracy ledger categories: correct, minor fix needed, debug needed, recode needed, broke build/tests, abandoned, user override, and linked repair run.
+- Model performance data is stored in SwiftData and synced through CloudKit, excluding secrets and raw sensitive workspace content unless the user opts into storing prompt/output excerpts.
+
+## AgentNotes Coordination
+- On project onboarding, create `AgentNotes.md` at the project root from SwiftData coordination records.
+- Required preflight for every agent prompt: read `AgentNotes.md`, summarize active work, identify conflicts, claim/update task status, and respect concurrent in-progress assignments.
+- Record changelog entries, implementation plans, phases, waves, steps, task owners, handoffs, blockers, decisions, test evidence, commit SHAs, push checkpoints, and rollback notes.
+- If file locks or cross-agent writes become unreliable, SwiftData remains authoritative and `AgentNotes.md` becomes a regenerated/exported projection.
+
+## Key Interfaces
+- `AgentProviderProfile`: identity, install recipes, auth methods, capabilities, source URLs, supported execution modes.
+- `AgentCLIAdapter`: availability probe, version probe, auth probe, command builder, stream parser, cancellation, exit classification.
+- `UsageLimitPolicy`: manual quotas, provider-reported probes, refresh windows, cost estimates, pressure score.
+- `RunOutcome`: status, linked repair run, correctness rating, test/build result, user feedback.
+- `CoordinationEvent`: phase/wave/step, assignee, status, dependency, run ID, commit SHA, conflict marker.
+- `CloudSnapshot`: version, scope, created date, record counts, checksum, restore notes.
+
+## Implementation Phases
+- Phase 0: macOS-only target cleanup, Swift 6 strict concurrency, CloudKit entitlements/config, base SwiftData schema.
+- Phase 1: provider catalog, CLI adapter protocol, fake adapter test harness, Codex/Claude/Copilot initial adapters.
+- Phase 2: prompt composer, routing score preview, approval sheet, process streaming, run ledger.
+- Phase 3: CloudKit sync status, snapshot/restore center, conflict handling, Keychain-only secret storage.
+- Phase 4: dashboard heatmaps, accuracy feedback, cost/limit policies, model performance history.
+- Phase 5: setup wizard with OAuth/API/env/custom command flows and additional provider adapters.
+- Phase 6: `AgentNotes.md` generation/reconciliation, cross-agent preflight prompts, commit/push checkpoint workflow.
+- Phase 7: Apple Foundation Models integration. Design rule: any feature where on-device LLM functionality is suitable must consider [Apple Foundation Models](https://developer.apple.com/documentation/foundationmodels) first. Five sub-phases — implementation order optimized for incremental value:
+  - Phase 7.1: in-process runner adapter so the existing run pipeline (approval sheet, live console, accuracy ledger, dashboard, snapshots) treats `apple.foundation-models` as a first-class provider. New `FoundationModelsRunner: AgentRunning` wraps `LanguageModelSession.streamResponse(to:)`, translating partial-snapshot deltas into `AgentProcessEvent.standardOutput` lines. New `FoundationModelsAdapter: AgentCLIAdapter` produces an in-process `AgentCommand`. A `CompositeAgentRunner` dispatches by `executablePath` prefix so the same dispatcher handles both child processes and on-device sessions. Availability is checked via `SystemLanguageModel.default.availability`, abstracted behind a `FoundationModelsAvailabilityChecking` protocol so the `ProviderHealthMonitor` and tests both work without requiring Apple Intelligence to be enabled in the test environment.
+  - Phase 7.2: structured outcome classification using `@Generable`. After a successful run, feed stdout/stderr to a `LanguageModelSession.respond(to:generating: RunSummary.self)` call where `RunSummary` is a `@Generable struct { filesChanged: [String]; testsPassed: Int; testsFailed: Int; oneLineDescription: String; suggestedAccuracyRating: AccuracyRating }`. Stamp the structured fields onto `RunOutcomeRecord` automatically; the dashboard accuracy/performance signals get measurably better data with no regex.
+  - Phase 7.3: tool-calling command bar. Expose existing app actions (`RankAgents`, `DispatchRun`, `ProbeProviders`, `CreateSnapshot`, `ReconcileAgentNotes`, `ReadDashboardMetrics`) as types conforming to the `Tool` protocol with `@Generable` `Arguments` structs. A toolbar command bar opens a `LanguageModelSession(tools: [...])` so users can describe goals in natural language ("rank agents for the failing tests, run on Codex, then commit") and the model invokes the right actions through the same actor surface the UI already uses.
+  - Phase 7.4: intelligent AgentNotes preflight + reconciliation. Replace the byte-truncated 4 KB excerpt with a Foundation Models summary focused on the *current* prompt's relevance ("active claims that affect this prompt"). When `ProjectCoordinationActor.reconcile(...)` returns `.fileDiverged`, optionally ask Foundation Models to propose a merged version (the user still gates the final write through the existing `confirmationDialog`).
+  - Phase 7.5: routing tie-breaker. When `RoutingEngine.rank(...)` produces multiple providers within a small score window, an on-device call returns a typed `RoutingTieBreak` (`@Generable`) that explains which provider is best for the specific prompt and why. Optional layer; deterministic scoring stays canonical, the reasoning is shown alongside the rationale string.
+
+  Cross-cutting: every Foundation Models call site must (1) check `SystemLanguageModel.default.availability` before invoking, (2) degrade gracefully when Apple Intelligence is unavailable (show the existing fallback path, log a system line), (3) keep the framework dependency behind `#if canImport(FoundationModels)` and `@available(macOS 26.0, *)` so the project remains buildable against older SDKs even though deployment is macOS 26.4+.
+
+## Test Plan
+- Unit test routing scores, quota pressure, cost estimates, accuracy math, CloudKit-compatible model assumptions, snapshots, restore previews, and AgentNotes merge rules.
+- Integration test fake adapters for missing CLI, missing auth, quota exhaustion, stream parsing, cancellation, tool failure, and malformed output.
+- Concurrency test simultaneous runs updating SwiftData, CloudKit-bound records, dashboard snapshots, and AgentNotes without races.
+- UI test onboarding, provider setup, OAuth handoff placeholder, prompt approval, live run output, outcome rating, restore preview, and heatmap updates.
+- Build/test command: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test`.
+
+## Sources
+Official references used: [OpenAI Codex CLI](https://developers.openai.com/codex/cli), [Claude Code auth](https://code.claude.com/docs/en/authentication), [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started), [gh copilot](https://cli.github.com/manual/gh_copilot), [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/index.md), [Kiro CLI](https://kiro.dev/docs/cli/installation/), [Qwen Code](https://github.com/QwenLM/qwen-code), [OpenCode](https://dev.opencode.ai/docs/), [DeepSeek integrations](https://api-docs.deepseek.com/guides/coding_agents), [SwiftData CloudKit sync](https://developer.apple.com/documentation/swiftdata/syncing-model-data-across-a-persons-devices), [Swift 6 strict concurrency](https://developer.apple.com/documentation/swift/adoptingswift6), [Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass), [Apple Foundation Models](https://developer.apple.com/documentation/foundationmodels), [LanguageModelSession](https://developer.apple.com/documentation/foundationmodels/languagemodelsession), [Tool protocol / tool calling](https://developer.apple.com/documentation/foundationmodels/expanding-generation-with-tool-calling), [Generating Swift data structures with guided generation](https://developer.apple.com/documentation/foundationmodels/generating-swift-data-structures-with-guided-generation).
