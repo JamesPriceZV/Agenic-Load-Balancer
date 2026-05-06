@@ -243,3 +243,225 @@ struct FoundationModelsTests {
         #expect(FoundationModelsAvailability.modelNotReady.message.lowercased().contains("ready"))
     }
 }
+
+// MARK: - Live streaming path
+
+/// Scripted Foundation Models session driver used to exercise the runner's
+/// snapshot-to-delta-to-line translation without depending on Apple
+/// Intelligence being enabled on the host. Each step yields the
+/// accumulated text the runner should observe for that snapshot.
+private struct ScriptedFoundationModelsSessionDriver: FoundationModelsSessionDriving {
+    enum Step: Sendable {
+        case snapshot(String)
+        case fail(any Error & Sendable)
+    }
+
+    let steps: [Step]
+    let perStepDelayNanoseconds: UInt64
+
+    init(steps: [Step], perStepDelayNanoseconds: UInt64 = 0) {
+        self.steps = steps
+        self.perStepDelayNanoseconds = perStepDelayNanoseconds
+    }
+
+    func streamSnapshots(prompt _: String) -> AsyncThrowingStream<String, Error> {
+        let scripted = steps
+        let delay = perStepDelayNanoseconds
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for step in scripted {
+                    if Task.isCancelled {
+                        continuation.finish()
+                        return
+                    }
+                    if delay > 0 {
+                        try? await Task.sleep(nanoseconds: delay)
+                    }
+                    switch step {
+                    case .snapshot(let value):
+                        continuation.yield(value)
+                    case .fail(let error):
+                        continuation.finish(throwing: error)
+                        return
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+}
+
+private struct FoundationModelsScriptedFailure: Error, LocalizedError {
+    let underlying: String
+    var errorDescription: String? { underlying }
+}
+
+@MainActor
+@Suite("Foundation Models live streaming path")
+struct FoundationModelsStreamingTests {
+    private static func makeCommand() -> AgentCommand {
+        AgentCommand(
+            providerID: "apple.foundation-models",
+            executablePath: FoundationModelsAdapter.inProcessExecutablePath,
+            arguments: ["the prompt"]
+        )
+    }
+
+    @Test func runnerEmitsLineBufferedStdoutFromSnapshotDeltas() async throws {
+        // The driver yields accumulated snapshots — the runner must split
+        // by newline and emit only completed lines as `.standardOutput`.
+        let driver = ScriptedFoundationModelsSessionDriver(steps: [
+            .snapshot("Hello, "),                    // partial line, no newline yet
+            .snapshot("Hello, world\n"),             // newline → emit "Hello, world"
+            .snapshot("Hello, world\nDone."),        // continued; "Done." pending
+        ])
+        let runner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.available),
+            sessionDriver: driver
+        )
+
+        var stdout: [String] = []
+        var exit: Int32?
+        for try await event in runner.stream(command: Self.makeCommand()) {
+            switch event {
+            case .standardOutput(let line): stdout.append(line)
+            case .finished(let code): exit = code
+            default: break
+            }
+        }
+
+        #expect(stdout == ["Hello, world", "Done."])
+        #expect(exit == 0)
+    }
+
+    @Test func runnerEmitsHeartbeatWhenDriverProducesNoContent() async throws {
+        let driver = ScriptedFoundationModelsSessionDriver(steps: [])
+        let runner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.available),
+            sessionDriver: driver
+        )
+
+        var stdout: [String] = []
+        var exit: Int32?
+        for try await event in runner.stream(command: Self.makeCommand()) {
+            switch event {
+            case .standardOutput(let line): stdout.append(line)
+            case .finished(let code): exit = code
+            default: break
+            }
+        }
+
+        // The runner emits a single heartbeat so the usage estimator and
+        // outcome ledger see at least one stdout line for an empty session.
+        #expect(stdout.count == 1)
+        #expect(stdout.first?.lowercased().contains("foundation models") == true)
+        #expect(exit == 0)
+    }
+
+    @Test func runnerSurfacesDriverErrorAsStderrAndNonZeroExit() async throws {
+        let driver = ScriptedFoundationModelsSessionDriver(steps: [
+            .snapshot("Starting work\n"),
+            .fail(FoundationModelsScriptedFailure(underlying: "guard rail violation")),
+        ])
+        let runner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.available),
+            sessionDriver: driver
+        )
+
+        var stdout: [String] = []
+        var stderrJoined = ""
+        var exit: Int32?
+        for try await event in runner.stream(command: Self.makeCommand()) {
+            switch event {
+            case .standardOutput(let line): stdout.append(line)
+            case .standardError(let line): stderrJoined += line
+            case .finished(let code): exit = code
+            default: break
+            }
+        }
+
+        #expect(stdout == ["Starting work"])
+        #expect(stderrJoined.lowercased().contains("guard rail"))
+        #expect(exit == 1)
+    }
+
+    @Test func runnerReportsFrameworkUnavailableWhenAvailableButDriverIsNil() async throws {
+        // Availability says yes but no driver was injected (e.g. running on
+        // a host without the FoundationModels framework). The runner must
+        // emit a clear stderr line and exit 78 so the approval sheet can
+        // render the failure.
+        let runner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.available),
+            sessionDriver: nil
+        )
+
+        var stderrJoined = ""
+        var exit: Int32?
+        for try await event in runner.stream(command: Self.makeCommand()) {
+            switch event {
+            case .standardError(let line): stderrJoined += line
+            case .finished(let code): exit = code
+            default: break
+            }
+        }
+
+        #expect(stderrJoined.lowercased().contains("framework"))
+        #expect(exit == 78)
+    }
+
+    @Test func compositeRunnerWithDefaultsRoutesInProcessThroughFoundationModelsRunner() async throws {
+        // When the dispatcher uses its production default
+        // (`CompositeAgentRunner()`), in-process commands must reach the
+        // foundation models runner. We inject a stubbed availability that
+        // says `.appleIntelligenceNotEnabled` so the path completes without
+        // touching real Apple Intelligence — which is the same end-to-end
+        // shape we'd see in CI on a non-AI host.
+        let foundationRunner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.appleIntelligenceNotEnabled),
+            sessionDriver: nil
+        )
+        let composite = CompositeAgentRunner(
+            processRunner: ScriptedAgentProcessRunner(steps: [
+                .stdout("process should not run for in-process command"),
+                .finished(exitCode: 0),
+            ]),
+            foundationModelsRunner: foundationRunner
+        )
+
+        var stderrJoined = ""
+        var exit: Int32?
+        for try await event in composite.stream(command: Self.makeCommand()) {
+            switch event {
+            case .standardError(let line): stderrJoined += line
+            case .finished(let code): exit = code
+            default: break
+            }
+        }
+
+        #expect(stderrJoined.lowercased().contains("apple intelligence"))
+        #expect(exit == 78)
+    }
+
+    @Test func runnerFlushesPendingPartialLineAtEndOfStream() async throws {
+        // If the model's final snapshot ends mid-line (no trailing newline),
+        // the runner must still emit that partial line so the user sees the
+        // final tokens before the run terminates.
+        let driver = ScriptedFoundationModelsSessionDriver(steps: [
+            .snapshot("First line\nSecond line — no terminator"),
+        ])
+        let runner = FoundationModelsRunner(
+            availabilityChecker: StubFoundationModelsAvailabilityChecker(.available),
+            sessionDriver: driver
+        )
+
+        var stdout: [String] = []
+        for try await event in runner.stream(command: Self.makeCommand()) {
+            if case .standardOutput(let line) = event { stdout.append(line) }
+        }
+
+        #expect(stdout == ["First line", "Second line — no terminator"])
+    }
+}

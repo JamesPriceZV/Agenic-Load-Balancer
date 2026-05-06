@@ -404,7 +404,10 @@ actor ProviderHealthMonitor {
     private var lastSnapshots: [String: ProviderHealthSnapshot] = [:]
 
     func probe(provider: AgentProviderSnapshot) async -> ProviderHealthSnapshot {
-        let adapter = GenericCLIAdapter(providerID: provider.identifier)
+        // Route through the shared adapter factory so Foundation Models
+        // probes go through `SystemLanguageModel.default.availability`
+        // rather than the generic CLI binary resolver.
+        let adapter = AgentAdapterFactory.makeAdapter(providerID: provider.identifier)
         let snapshot = await adapter.availability(for: provider)
         lastSnapshots[provider.identifier] = snapshot
         return snapshot

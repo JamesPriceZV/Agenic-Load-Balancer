@@ -130,7 +130,7 @@ final class RunDispatcher {
     @ObservationIgnored private var userCancelRequested: Bool = false
 
     init(
-        runner: AgentRunning = AgentProcessRunner(),
+        runner: AgentRunning = CompositeAgentRunner(),
         adapterFactory: @escaping @Sendable (String, ProviderCommandProfileSnapshot?) -> AgentCLIAdapter = { id, profile in
             AgentAdapterFactory.makeAdapter(providerID: id, commandProfile: profile)
         },
