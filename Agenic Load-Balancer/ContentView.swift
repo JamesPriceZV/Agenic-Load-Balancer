@@ -555,6 +555,8 @@ private struct ApprovalSheetView: View {
     @State private var elapsedSeconds: Double = 0
     @State private var preflightExcerpt: String?
     @State private var preflightLoaded: Bool = false
+    @State private var preflightSummary: AgentNotesPreflightSummary?
+    @State private var preflightStatusText: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -607,10 +609,38 @@ private struct ApprovalSheetView: View {
         defer { preflightLoaded = true }
         guard let rootPath = plan.projectRootPath, !rootPath.isEmpty else {
             preflightExcerpt = nil
+            preflightSummary = nil
+            preflightStatusText = "No project root."
             return
         }
-        let excerpt = await AppServices.coordination.readAgentNotesExcerpt(rootPath: rootPath)
-        preflightExcerpt = excerpt
+        guard let fullAgentNotes = await AppServices.coordination.readAgentNotes(rootPath: rootPath) else {
+            preflightExcerpt = nil
+            preflightSummary = nil
+            preflightStatusText = nil
+            return
+        }
+        preflightExcerpt = Self.previewExcerpt(from: fullAgentNotes)
+
+        let intelligence = AgentNotesIntelligenceFactory.makeDefault()
+        do {
+            preflightSummary = try await intelligence.summarizePreflight(
+                agentNotes: fullAgentNotes,
+                prompt: plan.prompt,
+                mode: plan.mode
+            )
+            preflightStatusText = "Intelligent summary ready"
+        } catch AgentNotesIntelligenceError.unavailable(let reason) {
+            preflightSummary = nil
+            preflightStatusText = reason
+        } catch {
+            preflightSummary = nil
+            preflightStatusText = error.localizedDescription
+        }
+    }
+
+    private static func previewExcerpt(from text: String, maxBytes: Int = 4_000) -> String {
+        guard text.count > maxBytes else { return text }
+        return String(text.prefix(maxBytes)) + "\n…[truncated for preview]"
     }
 
     @ViewBuilder
@@ -622,17 +652,56 @@ private struct ApprovalSheetView: View {
                         .font(.headline)
                     Spacer()
                     if preflightLoaded {
-                        Text(preflightExcerpt == nil ? "No AgentNotes.md found" : "Will be embedded in prompt")
+                        Text(preflightHeaderStatus)
                             .font(.caption)
-                            .foregroundStyle(preflightExcerpt == nil ? Color.orange : Color.green)
+                            .foregroundStyle(preflightHeaderColor)
                     } else {
                         Text("Loading…").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text("The agent receives the latest on-disk AgentNotes excerpt above your prompt so cross-agent claims are visible without a separate file read.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let excerpt = preflightExcerpt, !excerpt.isEmpty {
+                if let preflightStatusText, preflightSummary == nil, preflightExcerpt != nil {
+                    Text(preflightStatusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                if let preflightSummary {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !preflightSummary.relevantActiveClaims.isEmpty {
+                            Text("Relevant claims")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            ForEach(preflightSummary.relevantActiveClaims, id: \.self) { claim in
+                                Label(claim, systemImage: "checklist")
+                                    .font(.caption)
+                            }
+                        }
+                        if !preflightSummary.blockingConflicts.isEmpty {
+                            Text("Blocking conflicts")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            ForEach(preflightSummary.blockingConflicts, id: \.self) { conflict in
+                                Label(conflict, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        if !preflightSummary.suggestedClaim.isEmpty {
+                            Label(preflightSummary.suggestedClaim, systemImage: "tag")
+                                .font(.caption)
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        ScrollView {
+                            Text(preflightSummary.promptInjectionText)
+                                .font(.callout.monospaced())
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                        }
+                        .frame(maxHeight: 120)
+                        .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                } else if let excerpt = preflightExcerpt, !excerpt.isEmpty {
                     ScrollView {
                         Text(excerpt)
                             .font(.callout.monospaced())
@@ -649,6 +718,18 @@ private struct ApprovalSheetView: View {
                 }
             }
         }
+    }
+
+    private var preflightHeaderStatus: String {
+        if preflightSummary != nil { return "Summary ready" }
+        if preflightExcerpt != nil { return "Using excerpt fallback" }
+        return "No AgentNotes.md found"
+    }
+
+    private var preflightHeaderColor: Color {
+        if preflightSummary != nil { return Color.green }
+        if preflightExcerpt != nil { return Color.orange }
+        return Color.orange
     }
 
     @ViewBuilder
@@ -1013,6 +1094,7 @@ private struct ApprovalSheetView: View {
                     dispatcher.dispatch(
                         plan: plan,
                         agentNotesExcerpt: preflightExcerpt,
+                        agentNotesPreflightSummary: preflightSummary,
                         modelContext: modelContext
                     )
                 } label: {
@@ -2760,7 +2842,37 @@ private struct AgentNotesView: View {
 
     @State private var reconciliations: [String: AgentNotesReconciliation] = [:]
     @State private var statusByProject: [String: String] = [:]
+    @State private var mergeProposals: [String: AgentNotesMergeProposal] = [:]
+    @State private var mergeInProgressProjectIDs: Set<String> = []
     @State private var pendingApply: PendingApply?
+
+    private enum ApplyKind {
+        case regenerateFromSwiftData
+        case mergeProposal
+
+        var confirmTitle: String {
+            switch self {
+            case .regenerateFromSwiftData: "Replace"
+            case .mergeProposal: "Apply Merge"
+            }
+        }
+
+        var successMessage: String {
+            switch self {
+            case .regenerateFromSwiftData: "Regenerated AgentNotes.md from SwiftData."
+            case .mergeProposal: "Applied reviewed AgentNotes merge proposal."
+            }
+        }
+
+        var confirmationMessage: String {
+            switch self {
+            case .regenerateFromSwiftData:
+                return "This regenerates AgentNotes.md from the SwiftData coordination ledger. Hand-edits will be lost. The original is also a SwiftData record so nothing is permanently destroyed."
+            case .mergeProposal:
+                return "This replaces AgentNotes.md with the reviewed merge proposal. A snapshot or Git checkpoint should exist before applying this to important project roots."
+            }
+        }
+    }
 
     private struct PendingApply: Identifiable {
         let id = UUID()
@@ -2768,6 +2880,7 @@ private struct AgentNotesView: View {
         let projectName: String
         let rootPath: String
         let suggestedContent: String
+        let kind: ApplyKind
     }
 
     var body: some View {
@@ -2789,7 +2902,9 @@ private struct AgentNotesView: View {
                     AgentNotesProjectRow(
                         project: project,
                         reconciliation: reconciliations[project.identifier],
+                        mergeProposal: mergeProposals[project.identifier],
                         statusText: statusByProject[project.identifier],
+                        mergeInProgress: mergeInProgressProjectIDs.contains(project.identifier),
                         eventCountForProject: coordinationEvents
                             .filter { $0.projectID == project.identifier || $0.projectID == nil }
                             .count,
@@ -2802,7 +2917,22 @@ private struct AgentNotesView: View {
                                     projectID: project.identifier,
                                     projectName: project.name,
                                     rootPath: project.rootPath ?? "",
-                                    suggestedContent: reconciliation.suggestedContent
+                                    suggestedContent: reconciliation.suggestedContent,
+                                    kind: .regenerateFromSwiftData
+                                )
+                            }
+                        },
+                        onProposeMerge: {
+                            await proposeMerge(project: project)
+                        },
+                        onApplyMerge: {
+                            if let proposal = mergeProposals[project.identifier] {
+                                pendingApply = PendingApply(
+                                    projectID: project.identifier,
+                                    projectName: project.name,
+                                    rootPath: project.rootPath ?? "",
+                                    suggestedContent: proposal.mergedContent,
+                                    kind: .mergeProposal
                                 )
                             }
                         }
@@ -2844,21 +2974,21 @@ private struct AgentNotesView: View {
             .padding(24)
         }
         .confirmationDialog(
-            "Replace AgentNotes.md with the regenerated version?",
+            "Replace AgentNotes.md?",
             isPresented: Binding(
                 get: { pendingApply != nil },
                 set: { newValue in if !newValue { pendingApply = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("Replace", role: .destructive) {
+            Button(pendingApply?.kind.confirmTitle ?? "Replace", role: .destructive) {
                 if let target = pendingApply {
                     Task { await applyReconciliation(target: target) }
                 }
             }
             Button("Cancel", role: .cancel) { pendingApply = nil }
         } message: {
-            Text("This regenerates AgentNotes.md from the SwiftData coordination ledger. Hand-edits will be lost. The original is also a SwiftData record so nothing is permanently destroyed.")
+            Text(pendingApply?.kind.confirmationMessage ?? "")
         }
     }
 
@@ -2878,8 +3008,41 @@ private struct AgentNotesView: View {
             )
             reconciliations[project.identifier] = result
             statusByProject[project.identifier] = Self.statusText(for: result)
+            if !result.requiresAttention {
+                mergeProposals[project.identifier] = nil
+            }
         } catch {
             statusByProject[project.identifier] = "Reconcile failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func proposeMerge(project: AgentProject) async {
+        guard let reconciliation = reconciliations[project.identifier] else {
+            statusByProject[project.identifier] = "Run reconcile before requesting a merge proposal."
+            return
+        }
+        guard let localContent = reconciliation.onDiskContent else {
+            statusByProject[project.identifier] = "No on-disk AgentNotes.md content is available to merge."
+            return
+        }
+
+        mergeInProgressProjectIDs.insert(project.identifier)
+        defer { mergeInProgressProjectIDs.remove(project.identifier) }
+
+        let intelligence = AgentNotesIntelligenceFactory.makeDefault()
+        do {
+            let proposal = try await intelligence.proposeMerge(
+                localContent: localContent,
+                generatedContent: reconciliation.suggestedContent
+            )
+            mergeProposals[project.identifier] = proposal
+            if proposal.unresolvedConflicts.isEmpty {
+                statusByProject[project.identifier] = "Merge proposal ready."
+            } else {
+                statusByProject[project.identifier] = "Merge proposal has \(proposal.unresolvedConflicts.count) unresolved conflict(s)."
+            }
+        } catch {
+            statusByProject[project.identifier] = "Merge proposal failed: \(error.localizedDescription)"
         }
     }
 
@@ -2889,7 +3052,8 @@ private struct AgentNotesView: View {
                 rootPath: target.rootPath,
                 suggestedContent: target.suggestedContent
             )
-            statusByProject[target.projectID] = "Regenerated AgentNotes.md from SwiftData."
+            statusByProject[target.projectID] = target.kind.successMessage
+            mergeProposals[target.projectID] = nil
             // Re-run the reconcile so the displayed state moves to fileMatches.
             if let project = projects.first(where: { $0.identifier == target.projectID }) {
                 await reconcile(project: project)
@@ -2914,10 +3078,14 @@ private struct AgentNotesView: View {
 private struct AgentNotesProjectRow: View {
     let project: AgentProject
     let reconciliation: AgentNotesReconciliation?
+    let mergeProposal: AgentNotesMergeProposal?
     let statusText: String?
+    let mergeInProgress: Bool
     let eventCountForProject: Int
     let onReconcile: () async -> Void
     let onApply: () -> Void
+    let onProposeMerge: () async -> Void
+    let onApplyMerge: () -> Void
 
     var body: some View {
         GlassPanel {
@@ -2958,11 +3126,82 @@ private struct AgentNotesProjectRow: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                    if let reconciliation, reconciliation.requiresAttention, reconciliation.onDiskContent != nil {
+                        Button {
+                            Task { await onProposeMerge() }
+                        } label: {
+                            Label(mergeInProgress ? "Proposing…" : "Propose Merge", systemImage: "sparkles")
+                        }
+                        .disabled(mergeInProgress)
+                    }
                     Spacer()
                     Text("\(eventCountForProject) coordination events")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let mergeProposal {
+                    AgentNotesMergeProposalPreview(
+                        proposal: mergeProposal,
+                        onApply: onApplyMerge
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct AgentNotesMergeProposalPreview: View {
+    let proposal: AgentNotesMergeProposal
+    let onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            HStack(alignment: .firstTextBaseline) {
+                Label("Merge proposal", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if !proposal.unresolvedConflicts.isEmpty {
+                    Label("\(proposal.unresolvedConflicts.count) conflict(s)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Text(proposal.explanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if !proposal.unresolvedConflicts.isEmpty {
+                ForEach(proposal.unresolvedConflicts, id: \.self) { conflict in
+                    Label(conflict, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            ScrollView {
+                Text(proposal.mergedContent)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 140)
+
+            HStack {
+                Text("\(proposal.retainedLocalLines.count) local / \(proposal.retainedGeneratedLines.count) generated retained")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    onApply()
+                } label: {
+                    Label("Apply Merge", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!proposal.unresolvedConflicts.isEmpty)
             }
         }
     }

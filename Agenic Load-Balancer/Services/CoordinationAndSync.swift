@@ -206,6 +206,14 @@ actor ProjectCoordinationActor {
         return prefix + "\n…[truncated for preflight]"
     }
 
+    /// Read the full on-disk AgentNotes content for prompt-relevant AI
+    /// summarisation. Callers decide how much of this to display or inject.
+    func readAgentNotes(rootPath: String) -> String? {
+        let fileURL = agentNotesURL(rootPath: rootPath)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return try? coordinatedReadString(at: fileURL)
+    }
+
     func renderAgentNotes(projectName: String, events: [CoordinationEventSnapshot]) -> String {
         let renderedEvents = events
             .sorted { $0.createdAt < $1.createdAt }

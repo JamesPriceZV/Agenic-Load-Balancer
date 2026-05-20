@@ -255,6 +255,21 @@ struct CoordinationCheckpointTests {
         #expect(excerpt?.contains("Claim: foo") == true)
     }
 
+    @Test func readAgentNotesReturnsFullContentForIntelligentPreflight() async throws {
+        let url = try Self.makeTempProjectDirectory()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let fileURL = url.appendingPathComponent("AgentNotes.md")
+        let longBody = String(repeating: "active claim\n", count: 600)
+        try longBody.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let actor = ProjectCoordinationActor()
+        let fullContent = await actor.readAgentNotes(rootPath: url.path)
+        let excerpt = await actor.readAgentNotesExcerpt(rootPath: url.path)
+
+        #expect(fullContent == longBody)
+        #expect((excerpt?.count ?? 0) < longBody.count)
+    }
+
     // MARK: composeCommandPrompt
 
     @Test func composeCommandPromptInjectsExcerptAboveUserPrompt() {
@@ -268,6 +283,17 @@ struct CoordinationCheckpointTests {
         let excerptRange = composed.range(of: "Active:")!
         let promptRange = composed.range(of: "Implement X")!
         #expect(excerptRange.lowerBound < promptRange.lowerBound)
+    }
+
+    @Test func composeCommandPromptPrefersIntelligentSummaryText() {
+        let composed = RunDispatcher.composeCommandPrompt(
+            userPrompt: "Fix failing tests",
+            agentNotesExcerpt: "Relevant active claim: Phase 7.2 validation pending"
+        )
+
+        #expect(composed.contains("Active AgentNotes excerpt"))
+        #expect(composed.contains("Phase 7.2 validation pending"))
+        #expect(composed.contains("Fix failing tests"))
     }
 
     @Test func composeCommandPromptOmitsBlockWhenNoExcerpt() {
@@ -300,7 +326,8 @@ struct CoordinationCheckpointTests {
         let dispatcher = RunDispatcher(
             runner: runner,
             adapterFactory: factory,
-            gitCheckpoint: stub
+            gitCheckpoint: stub,
+            summarizer: NoopRunSummarizer(reason: "CoordinationCheckpointTests do not invoke live Foundation Models.")
         )
 
         dispatcher.dispatch(
@@ -342,7 +369,8 @@ struct CoordinationCheckpointTests {
         let dispatcher = RunDispatcher(
             runner: runner,
             adapterFactory: factory,
-            gitCheckpoint: stub
+            gitCheckpoint: stub,
+            summarizer: NoopRunSummarizer(reason: "CoordinationCheckpointTests do not invoke live Foundation Models.")
         )
 
         dispatcher.dispatch(
@@ -379,7 +407,8 @@ struct CoordinationCheckpointTests {
         let dispatcher = RunDispatcher(
             runner: runner,
             adapterFactory: factory,
-            gitCheckpoint: stub
+            gitCheckpoint: stub,
+            summarizer: NoopRunSummarizer(reason: "CoordinationCheckpointTests do not invoke live Foundation Models.")
         )
 
         dispatcher.dispatch(

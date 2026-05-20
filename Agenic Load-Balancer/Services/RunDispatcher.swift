@@ -205,21 +205,25 @@ final class RunDispatcher {
     /// as a failed run rather than being thrown, so the sheet can render the
     /// failure inline alongside the originally-approved command preview.
     ///
-    /// `agentNotesExcerpt` is the current on-disk content (or `nil` when
-    /// the project has no AgentNotes file yet). When supplied it gets
-    /// embedded in the prompt so the agent sees the active claims directly,
-    /// not just an instruction to re-read the file.
+    /// `agentNotesExcerpt` is the current on-disk fallback excerpt (or `nil`
+    /// when the project has no AgentNotes file yet). When
+    /// `agentNotesPreflightSummary` is supplied, its prompt injection text is
+    /// preferred so the agent sees only the prompt-relevant active claims.
     func dispatch(
         plan: RunPlan,
         agentNotesExcerpt: String? = nil,
+        agentNotesPreflightSummary: AgentNotesPreflightSummary? = nil,
         modelContext: ModelContext
     ) {
         reset()
         status = .preparing
         activePlan = plan
-        preflightExcerpt = agentNotesExcerpt
+        let preflightPromptText = agentNotesPreflightSummary?.promptInjectionText ?? agentNotesExcerpt
+        preflightExcerpt = preflightPromptText
         appendSystem("Approved \(plan.providerName) for \(plan.mode.label).")
-        if agentNotesExcerpt?.isEmpty == false {
+        if let agentNotesPreflightSummary {
+            appendSystem("AgentNotes intelligent preflight injected (\(agentNotesPreflightSummary.promptInjectionText.count) chars).")
+        } else if agentNotesExcerpt?.isEmpty == false {
             appendSystem("AgentNotes preflight injected (\(agentNotesExcerpt?.count ?? 0) chars).")
         }
 
@@ -231,7 +235,7 @@ final class RunDispatcher {
 
         let promptForCommand = Self.composeCommandPrompt(
             userPrompt: plan.prompt,
-            agentNotesExcerpt: agentNotesExcerpt
+            agentNotesExcerpt: preflightPromptText
         )
 
         let command: AgentCommand

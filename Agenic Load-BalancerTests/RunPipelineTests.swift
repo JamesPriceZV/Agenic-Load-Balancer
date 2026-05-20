@@ -91,7 +91,11 @@ struct RunPipelineTests {
                 executableResolver: StubExecutableResolver(resolvedPath: resolverPath, version: "0.0.0")
             )
         }
-        return RunDispatcher(runner: runner, adapterFactory: factory)
+        return RunDispatcher(
+            runner: runner,
+            adapterFactory: factory,
+            summarizer: NoopRunSummarizer(reason: "RunPipelineTests do not invoke live Foundation Models.")
+        )
     }
 
     // MARK: Tests
