@@ -24,6 +24,7 @@ struct ContentView: View {
     @Query private var snapshots: [CloudSnapshotRecord]
 
     @State private var selectedSection: ConsoleSection? = .dashboard
+    @State private var showingCommandBar = false
     @State private var cloudStatus = CloudSyncStatusSnapshot(
         containerIdentifier: AgenicDataModel.cloudKitContainerIdentifier,
         lastLocalSave: nil,
@@ -62,6 +63,12 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button {
+                    showingCommandBar = true
+                } label: {
+                    Label("Command Bar", systemImage: "command")
+                }
+
+                Button {
                     selectedSection = .promptRouter
                 } label: {
                     Label("New Prompt", systemImage: "plus.message")
@@ -75,6 +82,15 @@ struct ContentView: View {
                     Label("Sync Status", systemImage: "arrow.triangle.2.circlepath.icloud")
                 }
             }
+        }
+        .sheet(isPresented: $showingCommandBar) {
+            CommandBarView(
+                projects: projects,
+                providers: providers,
+                usageEntries: usageEntries,
+                outcomes: outcomes,
+                coordinationEvents: coordinationEvents
+            )
         }
     }
 
