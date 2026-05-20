@@ -764,14 +764,16 @@ final class RunDispatcher {
             coordination.status = {
                 switch terminal {
                 case .succeeded: return CoordinationStatus.completed.rawValue
-                case .cancelled: return CoordinationStatus.blocked.rawValue
+                case .cancelled: return CoordinationStatus.cancelled.rawValue
                 case .failed: return CoordinationStatus.conflict.rawValue
                 default: return CoordinationStatus.blocked.rawValue
                 }
             }()
             if let errorMessage {
                 coordination.detail += "\n\(errorMessage)"
-                coordination.conflictMarker = errorMessage
+                if terminal == .failed {
+                    coordination.conflictMarker = errorMessage
+                }
             } else if terminal == .succeeded, let code {
                 coordination.detail += "\nExit code: \(code)"
             }

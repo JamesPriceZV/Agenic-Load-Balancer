@@ -27,6 +27,84 @@ struct AgentNotesMergeProposal: Sendable, Codable, Hashable {
     var explanation: String
 }
 
+enum AgentNotesPreflightFilter {
+    static func activeCoordinationText(from agentNotes: String) -> String {
+        let parsed = parseEventBlocks(from: agentNotes)
+        guard !parsed.blocks.isEmpty else { return agentNotes }
+
+        let activeBlocks = parsed.blocks.filter { block in
+            CoordinationStatus.isActiveForPreflight(block.status) &&
+                !isStaleCancelledDispatchBlock(block)
+        }
+        let renderedActive = activeBlocks.isEmpty
+            ? "- No active coordination blockers."
+            : activeBlocks.map(\.text).joined(separator: "\n")
+        return headerPrefix(from: parsed.header) +
+            "\n\n## Active Work\n" +
+            renderedActive
+    }
+
+    private struct EventBlock {
+        var status: String
+        var text: String
+    }
+
+    private static func parseEventBlocks(from text: String) -> (header: String, blocks: [EventBlock]) {
+        let lines = text.components(separatedBy: .newlines)
+        var header: [String] = []
+        var blocks: [EventBlock] = []
+        var current: [String] = []
+        var currentStatus: String?
+
+        func flushCurrent() {
+            guard let currentStatus else { return }
+            blocks.append(EventBlock(status: currentStatus, text: current.joined(separator: "\n")))
+            current.removeAll()
+        }
+
+        for line in lines {
+            if let status = statusPrefix(in: line) {
+                flushCurrent()
+                currentStatus = status
+                current = [line]
+            } else if currentStatus != nil {
+                current.append(line)
+            } else {
+                header.append(line)
+            }
+        }
+        flushCurrent()
+        return (header.joined(separator: "\n"), blocks)
+    }
+
+    private static func headerPrefix(from header: String) -> String {
+        var prefix = header
+        if let activeRange = prefix.range(of: "## Active Work") {
+            prefix = String(prefix[..<activeRange.lowerBound])
+        }
+        if let historyRange = prefix.range(of: "## History") {
+            prefix = String(prefix[..<historyRange.lowerBound])
+        }
+        return prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func statusPrefix(in line: String) -> String? {
+        guard line.hasPrefix("- ["),
+              let close = line.firstIndex(of: "]")
+        else { return nil }
+        let start = line.index(line.startIndex, offsetBy: 3)
+        guard start <= close else { return nil }
+        return String(line[start..<close])
+    }
+
+    private static func isStaleCancelledDispatchBlock(_ block: EventBlock) -> Bool {
+        guard block.status == CoordinationStatus.blocked.rawValue else { return false }
+        let text = block.text.localizedLowercase
+        return text.contains("phase 2 / dispatch") &&
+            (text.contains("cancelled") || text.contains("canceled"))
+    }
+}
+
 enum AgentNotesIntelligenceError: Error, Sendable, LocalizedError, Equatable {
     case unavailable(String)
     case generationFailed(String)
@@ -185,6 +263,7 @@ struct LiveFoundationModelsAgentNotesIntelligence: AgentNotesIntelligencing {
             instructions: Instructions {
                 "Summarize AgentNotes only for the current prompt."
                 "Prefer active claims, conflicts, blockers, and the exact next claim."
+                "Ignore completed, checkpointed, cancelled, and stale cancelled dispatch history."
                 "Do not invent commits, tests, file state, owners, or validation evidence."
             }
         )

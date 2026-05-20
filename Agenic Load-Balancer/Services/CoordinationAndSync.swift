@@ -88,6 +88,57 @@ struct AgentNotesReconciliation: Sendable {
     }
 }
 
+@MainActor
+enum CoordinationEventMaintenance {
+    static func staleDispatchEvents(
+        in events: [CoordinationEventRecord],
+        projectID: String
+    ) -> [CoordinationEventRecord] {
+        events.filter { event in
+            (event.projectID == projectID || event.projectID == nil) &&
+                event.phase == "Phase 2" &&
+                event.wave == "Dispatch" &&
+                (event.status == CoordinationStatus.blocked.rawValue ||
+                    event.status == CoordinationStatus.cancelled.rawValue) &&
+                isStaleDispatchRecord(event.snapshot())
+        }
+    }
+
+    static func isStaleDispatchRecord(_ event: CoordinationEventSnapshot) -> Bool {
+        guard event.phase == "Phase 2", event.wave == "Dispatch" else { return false }
+        if event.detail.contains("Resolved stale dispatch record") { return false }
+        if event.status == CoordinationStatus.cancelled.rawValue { return true }
+        guard event.status == CoordinationStatus.blocked.rawValue else { return false }
+        let text = [
+            event.title,
+            event.detail,
+            event.conflictMarker ?? "",
+        ].joined(separator: "\n").localizedLowercase
+        return text.contains("cancelled") || text.contains("canceled")
+    }
+
+    static func resolveStaleDispatchEvents(
+        _ events: [CoordinationEventRecord],
+        resolvedAt: Date = Date()
+    ) -> Int {
+        var resolved = 0
+        for event in events where isStaleDispatchRecord(event.snapshot()) {
+            resolved += 1
+            if event.status != CoordinationStatus.cancelled.rawValue {
+                event.status = CoordinationStatus.cancelled.rawValue
+            }
+            if let marker = event.conflictMarker,
+               marker.localizedCaseInsensitiveContains("cancel") {
+                event.conflictMarker = nil
+            }
+            if !event.detail.contains("Resolved stale dispatch record") {
+                event.detail += "\nResolved stale dispatch record on \(resolvedAt.formatted(date: .abbreviated, time: .standard))."
+            }
+        }
+        return resolved
+    }
+}
+
 actor ProjectCoordinationActor {
     private let fileManager: FileManager = .default
 
@@ -217,8 +268,13 @@ actor ProjectCoordinationActor {
     }
 
     func renderAgentNotes(projectName: String, events: [CoordinationEventSnapshot]) -> String {
-        let renderedEvents = events
-            .sorted { $0.createdAt < $1.createdAt }
+        let sortedEvents = events.sorted { $0.createdAt < $1.createdAt }
+        let activeEvents = sortedEvents
+            .filter { CoordinationStatus.isActiveForPreflight($0.status) }
+            .map(renderEvent)
+            .joined(separator: "\n")
+        let historicalEvents = sortedEvents
+            .filter { CoordinationStatus.isHistorical($0.status) }
             .map(renderEvent)
             .joined(separator: "\n")
 
@@ -236,7 +292,10 @@ actor ProjectCoordinationActor {
         - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
 
         ## Active Work
-        \(renderedEvents.isEmpty ? "- No active work recorded yet." : renderedEvents)
+        \(activeEvents.isEmpty ? "- No active work recorded yet." : activeEvents)
+
+        ## History
+        \(historicalEvents.isEmpty ? "- No historical coordination events recorded yet." : historicalEvents)
         """
     }
 

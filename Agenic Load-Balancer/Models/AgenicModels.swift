@@ -127,11 +127,25 @@ enum CoordinationStatus: String, CaseIterable, Identifiable, Sendable {
     case claimed
     case inProgress
     case blocked
+    case cancelled
     case checkpointed
     case completed
     case conflict
 
     var id: String { rawValue }
+
+    static func isActiveForPreflight(_ rawValue: String) -> Bool {
+        switch CoordinationStatus(rawValue: rawValue) {
+        case .planned, .claimed, .inProgress, .blocked, .conflict:
+            return true
+        case .cancelled, .checkpointed, .completed, .none:
+            return false
+        }
+    }
+
+    static func isHistorical(_ rawValue: String) -> Bool {
+        !isActiveForPreflight(rawValue)
+    }
 }
 
 @Model

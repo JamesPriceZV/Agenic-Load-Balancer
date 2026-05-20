@@ -82,4 +82,27 @@ struct AgentNotesIntelligenceTests {
             _ = try await intelligence.proposeMerge(localContent: "local", generatedContent: "generated")
         }
     }
+
+    @Test func preflightFilterDropsHistoricalAndStaleCancelledDispatchBlocks() {
+        let notes = """
+        # AgentNotes.md
+
+        ## Active Work
+        - [completed] Phase 2 / Dispatch / Recommend: Running Copilot
+          Detail: Exit code: 0
+        - [cancelled] Phase 2 / Dispatch / Read / Review: Running Codex
+          Detail: Run cancelled before completion.
+        - [blocked] Phase 2 / Dispatch / Read / Review: Running Codex
+          Detail: Run cancelled before completion.
+          Conflict: Run cancelled before completion.
+        - [conflict] Phase 8 / Build / Tests: Fix failing test
+          Detail: XCTest failed.
+        """
+
+        let filtered = AgentNotesPreflightFilter.activeCoordinationText(from: notes)
+
+        #expect(filtered.contains("Fix failing test"))
+        #expect(!filtered.contains("Running Copilot"))
+        #expect(!filtered.contains("Run cancelled before completion"))
+    }
 }

@@ -323,5 +323,8 @@ struct RunPipelineTests {
         #expect(dispatcher.status == .cancelled)
         let outcome = try #require(try context.fetch(FetchDescriptor<RunOutcomeRecord>()).first)
         #expect(outcome.status == RunStatus.cancelled.rawValue)
+        let coordination = try #require(try context.fetch(FetchDescriptor<CoordinationEventRecord>()).first)
+        #expect(coordination.status == CoordinationStatus.cancelled.rawValue)
+        #expect(coordination.conflictMarker == nil)
     }
 }

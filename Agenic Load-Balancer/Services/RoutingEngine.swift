@@ -85,9 +85,7 @@ actor RoutingEngine {
         let usageByProvider = Dictionary(uniqueKeysWithValues: usage.map { ($0.providerID, $0) })
         let accuracyByProvider = Dictionary(uniqueKeysWithValues: accuracy.map { ($0.providerID, $0) })
         let activeConflicts = coordinationEvents.filter { event in
-            event.status == CoordinationStatus.inProgress.rawValue ||
-            event.status == CoordinationStatus.claimed.rawValue ||
-            event.status == CoordinationStatus.conflict.rawValue
+            CoordinationStatus.isActiveForPreflight(event.status)
         }
 
         return providers

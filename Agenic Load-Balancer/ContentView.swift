@@ -850,12 +850,13 @@ struct ApprovalSheetView: View {
             preflightStatusText = nil
             return
         }
-        preflightExcerpt = Self.previewExcerpt(from: fullAgentNotes)
+        let activeAgentNotes = AgentNotesPreflightFilter.activeCoordinationText(from: fullAgentNotes)
+        preflightExcerpt = Self.previewExcerpt(from: activeAgentNotes)
 
         let intelligence = AgentNotesIntelligenceFactory.makeDefault()
         do {
             preflightSummary = try await intelligence.summarizePreflight(
-                agentNotes: fullAgentNotes,
+                agentNotes: activeAgentNotes,
                 prompt: plan.prompt,
                 mode: plan.mode
             )
@@ -3463,6 +3464,8 @@ private struct StatusBadgePill: View {
 }
 
 private struct AgentNotesView: View {
+    @Environment(\.modelContext) private var modelContext
+
     let projects: [AgentProject]
     let coordinationEvents: [CoordinationEventRecord]
 
@@ -3470,6 +3473,7 @@ private struct AgentNotesView: View {
     @State private var statusByProject: [String: String] = [:]
     @State private var mergeProposals: [String: AgentNotesMergeProposal] = [:]
     @State private var mergeInProgressProjectIDs: Set<String> = []
+    @State private var resolvingStaleProjectIDs: Set<String> = []
     @State private var pendingApply: PendingApply?
 
     private enum ApplyKind {
@@ -3534,8 +3538,13 @@ private struct AgentNotesView: View {
                         eventCountForProject: coordinationEvents
                             .filter { $0.projectID == project.identifier || $0.projectID == nil }
                             .count,
+                        staleDispatchCount: staleDispatchEvents(for: project).count,
+                        resolvingStaleDispatches: resolvingStaleProjectIDs.contains(project.identifier),
                         onReconcile: {
                             await reconcile(project: project)
+                        },
+                        onResolveStaleDispatches: {
+                            await resolveStaleDispatches(project: project)
                         },
                         onApply: {
                             if let reconciliation = reconciliations[project.identifier] {
@@ -3690,6 +3699,48 @@ private struct AgentNotesView: View {
         pendingApply = nil
     }
 
+    private func staleDispatchEvents(for project: AgentProject) -> [CoordinationEventRecord] {
+        CoordinationEventMaintenance.staleDispatchEvents(
+            in: coordinationEvents,
+            projectID: project.identifier
+        )
+    }
+
+    private func resolveStaleDispatches(project: AgentProject) async {
+        let targets = staleDispatchEvents(for: project)
+        guard !targets.isEmpty else {
+            statusByProject[project.identifier] = "No stale dispatch records to resolve."
+            return
+        }
+
+        resolvingStaleProjectIDs.insert(project.identifier)
+        defer { resolvingStaleProjectIDs.remove(project.identifier) }
+
+        let resolvedCount = CoordinationEventMaintenance.resolveStaleDispatchEvents(targets)
+        do {
+            try modelContext.save()
+            await AppServices.cloudSync.recordLocalSave()
+            statusByProject[project.identifier] = "Resolved \(resolvedCount) stale dispatch record(s)."
+            if let rootPath = project.rootPath, !rootPath.isEmpty {
+                let snapshots = coordinationEvents
+                    .filter { $0.projectID == project.identifier || $0.projectID == nil }
+                    .map { $0.snapshot() }
+                let reconciliation = try await AppServices.coordination.reconcile(
+                    projectName: project.name,
+                    rootPath: rootPath,
+                    events: snapshots
+                )
+                _ = try await AppServices.coordination.applyReconciliation(
+                    rootPath: rootPath,
+                    suggestedContent: reconciliation.suggestedContent
+                )
+                await reconcile(project: project)
+            }
+        } catch {
+            statusByProject[project.identifier] = "Resolve failed: \(error.localizedDescription)"
+        }
+    }
+
     private static func statusText(for reconciliation: AgentNotesReconciliation) -> String {
         switch reconciliation.state {
         case .fileMissing: "AgentNotes.md is missing — generate to create it."
@@ -3708,7 +3759,10 @@ private struct AgentNotesProjectRow: View {
     let statusText: String?
     let mergeInProgress: Bool
     let eventCountForProject: Int
+    let staleDispatchCount: Int
+    let resolvingStaleDispatches: Bool
     let onReconcile: () async -> Void
+    let onResolveStaleDispatches: () async -> Void
     let onApply: () -> Void
     let onProposeMerge: () async -> Void
     let onApplyMerge: () -> Void
@@ -3743,6 +3797,17 @@ private struct AgentNotesProjectRow: View {
                         Task { await onReconcile() }
                     } label: {
                         Label("Reconcile", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    if staleDispatchCount > 0 {
+                        Button {
+                            Task { await onResolveStaleDispatches() }
+                        } label: {
+                            Label(
+                                resolvingStaleDispatches ? "Resolving…" : "Resolve Stale Dispatches (\(staleDispatchCount))",
+                                systemImage: "checkmark.circle"
+                            )
+                        }
+                        .disabled(resolvingStaleDispatches)
                     }
                     if let reconciliation, reconciliation.requiresAttention {
                         Button {

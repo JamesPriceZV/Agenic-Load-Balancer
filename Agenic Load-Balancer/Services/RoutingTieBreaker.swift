@@ -263,9 +263,7 @@ struct LiveFoundationModelsRoutingTieBreaker: RoutingTieBreaking {
 
     private static func coordinationText(_ events: [CoordinationEventSnapshot]) -> String {
         let active = events.filter { event in
-            event.status == CoordinationStatus.inProgress.rawValue ||
-                event.status == CoordinationStatus.claimed.rawValue ||
-                event.status == CoordinationStatus.conflict.rawValue
+            CoordinationStatus.isActiveForPreflight(event.status)
         }
         guard !active.isEmpty else { return "No active coordination events." }
         return active.prefix(12).map { event in

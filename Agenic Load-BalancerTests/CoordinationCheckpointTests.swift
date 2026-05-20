@@ -44,6 +44,29 @@ struct CoordinationCheckpointTests {
         )
     }
 
+    private static func sampleEvent(
+        status: CoordinationStatus,
+        title: String,
+        detail: String,
+        createdAt: Date
+    ) -> CoordinationEventSnapshot {
+        CoordinationEventSnapshot(
+            identifier: UUID().uuidString,
+            projectID: nil,
+            phase: "Phase 2",
+            wave: "Dispatch",
+            step: "Read / Review",
+            assignee: "Codex CLI",
+            status: status.rawValue,
+            title: title,
+            detail: detail,
+            relatedRunID: nil,
+            commitSHA: nil,
+            conflictMarker: status == .blocked ? detail : nil,
+            createdAt: createdAt
+        )
+    }
+
     private static func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(
             "CheckpointTests-\(UUID().uuidString)",
@@ -121,6 +144,87 @@ struct CoordinationCheckpointTests {
         let contents = try String(contentsOf: result.fileURL, encoding: .utf8)
         #expect(contents.contains("AgentNotes.md"))
         #expect(contents.contains("Sample work"))
+    }
+
+    @Test func renderAgentNotesSeparatesActiveWorkFromHistoricalEvents() async throws {
+        let url = try Self.makeTempProjectDirectory()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let events = [
+            Self.sampleEvent(
+                status: .cancelled,
+                title: "Cancelled review",
+                detail: "Run cancelled before completion.",
+                createdAt: Date(timeIntervalSince1970: 1)
+            ),
+            Self.sampleEvent(
+                status: .blocked,
+                title: "Active blocker",
+                detail: "Needs credential setup.",
+                createdAt: Date(timeIntervalSince1970: 2)
+            ),
+            Self.sampleEvent(
+                status: .completed,
+                title: "Completed recommendation",
+                detail: "Exit code: 0",
+                createdAt: Date(timeIntervalSince1970: 3)
+            ),
+        ]
+
+        let result = try await ProjectCoordinationActor().ensureAgentNotes(
+            projectName: "Demo",
+            rootPath: url.path,
+            events: events
+        )
+        let contents = try String(contentsOf: result.fileURL, encoding: .utf8)
+        let activeSection = try #require(contents.components(separatedBy: "## History").first)
+
+        #expect(activeSection.contains("Active blocker"))
+        #expect(!activeSection.contains("Cancelled review"))
+        #expect(!activeSection.contains("Completed recommendation"))
+        #expect(contents.contains("## History"))
+        #expect(contents.contains("Cancelled review"))
+        #expect(contents.contains("Completed recommendation"))
+    }
+
+    @Test func staleCancelledDispatchRecordsResolveToCancelledStatus() throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let projectID = UUID().uuidString
+        let cancelledBlocker = CoordinationEventRecord(
+            projectID: projectID,
+            phase: "Phase 2",
+            wave: "Dispatch",
+            step: "Read / Review",
+            assignee: "Codex CLI",
+            status: CoordinationStatus.blocked.rawValue,
+            title: "Running Codex CLI for Read / Review",
+            detail: "Run cancelled before completion.",
+            conflictMarker: "Run cancelled before completion."
+        )
+        let realBlocker = CoordinationEventRecord(
+            projectID: projectID,
+            phase: "Phase 2",
+            wave: "Dispatch",
+            step: "Read / Review",
+            assignee: "Codex CLI",
+            status: CoordinationStatus.blocked.rawValue,
+            title: "Dispatch blocked for Codex CLI",
+            detail: "Missing executable."
+        )
+        context.insert(cancelledBlocker)
+        context.insert(realBlocker)
+
+        let targets = CoordinationEventMaintenance.staleDispatchEvents(
+            in: try context.fetch(FetchDescriptor<CoordinationEventRecord>()),
+            projectID: projectID
+        )
+        let resolved = CoordinationEventMaintenance.resolveStaleDispatchEvents(targets)
+
+        #expect(resolved == 1)
+        #expect(cancelledBlocker.status == CoordinationStatus.cancelled.rawValue)
+        #expect(cancelledBlocker.conflictMarker == nil)
+        #expect(realBlocker.status == CoordinationStatus.blocked.rawValue)
     }
 
     @Test func reconcileReturnsFileMissingWhenAbsent() async throws {

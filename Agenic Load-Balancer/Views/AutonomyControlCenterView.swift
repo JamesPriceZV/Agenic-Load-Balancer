@@ -382,7 +382,7 @@ struct AutonomyControlCenterView: View {
             status = .conflict
             detail = "Approval-gated run failed: \(dispatcher.lastError ?? "see run console")."
         case .cancelled:
-            status = .blocked
+            status = .cancelled
             detail = "Approval-gated run was cancelled."
         case .idle, .preparing, .running:
             status = nil
