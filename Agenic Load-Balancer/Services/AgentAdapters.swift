@@ -14,6 +14,7 @@ struct AgentCommand: Identifiable, Sendable {
     let arguments: [String]
     let environment: [String: String]
     let workingDirectory: String?
+    let standardInput: String?
     let requiresApproval: Bool
 
     init(
@@ -23,6 +24,7 @@ struct AgentCommand: Identifiable, Sendable {
         arguments: [String],
         environment: [String: String] = [:],
         workingDirectory: String? = nil,
+        standardInput: String? = nil,
         requiresApproval: Bool = true
     ) {
         self.id = id
@@ -31,6 +33,7 @@ struct AgentCommand: Identifiable, Sendable {
         self.arguments = arguments
         self.environment = environment
         self.workingDirectory = workingDirectory
+        self.standardInput = standardInput
         self.requiresApproval = requiresApproval
     }
 
@@ -187,6 +190,7 @@ struct GenericCLIAdapter: AgentCLIAdapter {
 
             let argumentLines = profile.argumentLines
             let arguments: [String]
+            let standardInput: String?
             if argumentLines.isEmpty {
                 // Empty template — fall back to the catalog defaults so the
                 // user can leave the template blank and still get a working
@@ -196,6 +200,10 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                     coordinationPrompt: coordinationPrompt,
                     projectPath: projectPath,
                     mode: mode
+                )
+                standardInput = Self.defaultCommandStandardInput(
+                    for: provider.identifier,
+                    coordinationPrompt: coordinationPrompt
                 )
             } else {
                 arguments = argumentLines.map { line in
@@ -207,6 +215,11 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                         providerID: provider.identifier
                     )
                 }
+                standardInput = Self.profileCommandStandardInput(
+                    for: provider.identifier,
+                    arguments: arguments,
+                    coordinationPrompt: coordinationPrompt
+                )
             }
 
             return AgentCommand(
@@ -215,6 +228,7 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                 arguments: arguments,
                 environment: profile.environment,
                 workingDirectory: projectPath,
+                standardInput: standardInput,
                 requiresApproval: mode != .recommendOnly
             )
         }
@@ -230,11 +244,16 @@ struct GenericCLIAdapter: AgentCLIAdapter {
             projectPath: projectPath,
             mode: mode
         )
+        let standardInput = Self.defaultCommandStandardInput(
+            for: provider.identifier,
+            coordinationPrompt: coordinationPrompt
+        )
         return AgentCommand(
             providerID: provider.identifier,
             executablePath: executablePath,
             arguments: arguments,
             workingDirectory: projectPath,
+            standardInput: standardInput,
             requiresApproval: mode != .recommendOnly
         )
     }
@@ -281,7 +300,7 @@ struct GenericCLIAdapter: AgentCLIAdapter {
         case "openai.codex":
             var arguments = ["exec", "--json"]
             if let projectPath { arguments += ["--cd", projectPath] }
-            arguments.append(coordinationPrompt)
+            arguments.append("-")
             return arguments
 
         case "anthropic.claude-code":
@@ -339,6 +358,29 @@ struct GenericCLIAdapter: AgentCLIAdapter {
         default:
             return [coordinationPrompt]
         }
+    }
+
+    static func defaultCommandStandardInput(
+        for providerID: String,
+        coordinationPrompt: String
+    ) -> String? {
+        switch providerID {
+        case "openai.codex":
+            coordinationPrompt
+        default:
+            nil
+        }
+    }
+
+    static func profileCommandStandardInput(
+        for providerID: String,
+        arguments: [String],
+        coordinationPrompt: String
+    ) -> String? {
+        guard providerID == "openai.codex", arguments.contains("-") else {
+            return nil
+        }
+        return coordinationPrompt
     }
 }
 
@@ -432,10 +474,12 @@ struct AgentProcessRunner: AgentRunning {
 
     func stream(command: AgentCommand) -> AsyncThrowingStream<AgentProcessEvent, Error> {
         AsyncThrowingStream { continuation in
+            let processHandle = RunningProcessHandle()
             let task = Task.detached(priority: .userInitiated) {
                 let process = Process()
                 let standardOutput = Pipe()
                 let standardError = Pipe()
+                let standardInput = command.standardInput.map { _ in Pipe() }
 
                 process.executableURL = URL(fileURLWithPath: command.executablePath)
                 process.arguments = command.arguments
@@ -445,9 +489,13 @@ struct AgentProcessRunner: AgentRunning {
                 }
                 process.standardOutput = standardOutput
                 process.standardError = standardError
+                if let standardInput {
+                    process.standardInput = standardInput
+                }
 
                 do {
                     continuation.yield(.started(command: command.displayCommand))
+                    processHandle.set(process)
 
                     let stdoutTask = Task {
                         for try await line in standardOutput.fileHandleForReading.bytes.lines {
@@ -462,6 +510,12 @@ struct AgentProcessRunner: AgentRunning {
                     }
 
                     try process.run()
+                    if let input = command.standardInput,
+                       let standardInput,
+                       let data = input.data(using: .utf8) {
+                        standardInput.fileHandleForWriting.write(data)
+                        try? standardInput.fileHandleForWriting.close()
+                    }
                     process.waitUntilExit()
                     try await stdoutTask.value
                     try await stderrTask.value
@@ -471,12 +525,47 @@ struct AgentProcessRunner: AgentRunning {
                     if process.isRunning {
                         process.terminate()
                     }
+                    if let standardInput {
+                        try? standardInput.fileHandleForWriting.close()
+                    }
                     continuation.finish(throwing: AgentProcessError.launchFailed(error.localizedDescription))
+                }
+                processHandle.clear(process)
+                if let standardInput {
+                    try? standardInput.fileHandleForWriting.close()
                 }
             }
 
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
+                processHandle.terminate()
+            }
+        }
+    }
+}
+
+private final class RunningProcessHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func set(_ process: Process) {
+        lock.withLock {
+            self.process = process
+        }
+    }
+
+    func clear(_ process: Process) {
+        lock.withLock {
+            if self.process === process {
+                self.process = nil
+            }
+        }
+    }
+
+    func terminate() {
+        lock.withLock {
+            if process?.isRunning == true {
+                process?.terminate()
             }
         }
     }

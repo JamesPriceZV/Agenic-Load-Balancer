@@ -231,6 +231,34 @@ struct RunPipelineTests {
         #expect(outcome.endedAt != nil)
     }
 
+    @Test func processRunnerDeliversStandardInput() async throws {
+        let command = AgentCommand(
+            providerID: "test.stdin",
+            executablePath: "/bin/cat",
+            arguments: [],
+            standardInput: "hello from stdin\n"
+        )
+        let runner = AgentProcessRunner()
+        var stdout: [String] = []
+        var finishedCode: Int32?
+
+        for try await event in runner.stream(command: command) {
+            switch event {
+            case .started:
+                break
+            case .standardOutput(let line):
+                stdout.append(line)
+            case .standardError:
+                break
+            case .finished(let code):
+                finishedCode = code
+            }
+        }
+
+        #expect(stdout == ["hello from stdin"])
+        #expect(finishedCode == 0)
+    }
+
     @Test func userCancellationTransitionsToCancelled() async throws {
         let container = try Self.makeContainer()
         let context = ModelContext(container)

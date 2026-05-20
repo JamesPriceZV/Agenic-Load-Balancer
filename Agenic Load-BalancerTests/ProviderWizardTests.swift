@@ -68,6 +68,9 @@ struct ProviderWizardTests {
         #expect(command.arguments.contains("--json"))
         #expect(command.arguments.contains("--cd"))
         #expect(command.arguments.contains("/tmp/proj"))
+        #expect(command.arguments.last == "-")
+        #expect(command.standardInput?.contains("Before working") == true)
+        #expect(command.standardInput?.contains("do thing") == true)
     }
 
     @Test func eachCatalogProviderProducesAtLeastTwoArguments() throws {
@@ -83,8 +86,12 @@ struct ProviderWizardTests {
                 mode: .implementation
             )
             #expect(arguments.count >= 1, "Provider \(draft.identifier) returned an empty argument array")
-            #expect(arguments.last?.contains("{{prompt}}") == true || arguments.last?.contains("prompt") == true,
-                    "Provider \(draft.identifier) does not pipe the coordination prompt as the final argument")
+            if draft.identifier == "openai.codex" {
+                #expect(arguments.last == "-", "Codex should read the prompt from stdin")
+            } else {
+                #expect(arguments.last?.contains("{{prompt}}") == true || arguments.last?.contains("prompt") == true,
+                        "Provider \(draft.identifier) does not pipe the coordination prompt as the final argument")
+            }
         }
     }
 
@@ -165,6 +172,8 @@ struct ProviderWizardTests {
         #expect(command.executablePath == "/usr/local/bin/codex")
         #expect(command.arguments.first == "exec")
         #expect(!command.arguments.contains("--bogus"))
+        #expect(command.arguments.last == "-")
+        #expect(command.standardInput?.contains("anything") == true)
     }
 
     @Test func enabledProfileWithEmptyTemplateUsesCatalogDefaults() throws {
@@ -191,6 +200,34 @@ struct ProviderWizardTests {
         )
         // Catalog default for codex starts with `exec`.
         #expect(command.arguments.first == "exec")
+        #expect(command.arguments.last == "-")
+        #expect(command.standardInput?.contains("hi") == true)
+    }
+
+    @Test func enabledCodexProfileWithDashPipesPromptToStandardInput() throws {
+        let provider = Self.snapshot(forProviderID: "openai.codex")
+        let profile = ProviderCommandProfileSnapshot(
+            identifier: UUID().uuidString,
+            providerID: provider.identifier,
+            displayName: "Stdin template",
+            executablePathOverride: nil,
+            argumentTemplate: "exec\n--json\n-",
+            environmentJSON: "{}",
+            isEnabled: true
+        )
+        let adapter = GenericCLIAdapter(
+            providerID: provider.identifier,
+            commandProfile: profile,
+            executableResolver: StubExecutableResolver(resolvedPath: "/usr/local/bin/codex", version: "1.0")
+        )
+        let command = try adapter.buildCommand(
+            prompt: "review the pipeline",
+            projectPath: nil,
+            mode: .readReview,
+            provider: provider
+        )
+        #expect(command.arguments == ["exec", "--json", "-"])
+        #expect(command.standardInput?.contains("review the pipeline") == true)
     }
 
     // MARK: Placeholder substitution
@@ -265,7 +302,7 @@ struct ProviderWizardTests {
         let wizard = ProviderSetupWizard()
         let draft = wizard.defaultCommandProfileDraft(for: provider)
         #expect(draft.providerID == "openai.codex")
-        #expect(draft.argumentTemplate.contains("{{prompt}}"))
+        #expect(draft.argumentTemplate.contains("-"))
         #expect(draft.argumentTemplate.contains("{{project}}"))
         #expect(draft.argumentTemplate.contains("exec"))
         #expect(draft.environmentJSON == "{}")

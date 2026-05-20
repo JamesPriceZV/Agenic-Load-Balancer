@@ -606,6 +606,7 @@ struct ApprovalSheetView: View {
         }
         .frame(minWidth: 720, idealWidth: 820, minHeight: 620, idealHeight: 720)
         .background(.regularMaterial)
+        .interactiveDismissDisabled(dispatcher.status == .preparing || dispatcher.status == .running)
         .task {
             await loadPreflightExcerpt()
         }
@@ -1100,9 +1101,9 @@ struct ApprovalSheetView: View {
     @ViewBuilder
     private var footer: some View {
         HStack(spacing: 12) {
-            Spacer()
             switch dispatcher.status {
             case .idle:
+                Spacer()
                 Button("Cancel", role: .cancel) { dismissSheet() }
                 Button {
                     dispatcher.dispatch(
@@ -1124,7 +1125,12 @@ struct ApprovalSheetView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
+                Spacer()
+                Text("Run in progress. Closing is disabled until it finishes or you cancel it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             case .succeeded, .failed, .cancelled:
+                Spacer()
                 Button {
                     dispatcher.reset()
                 } label: {
@@ -1276,7 +1282,7 @@ private struct LogLineView: View {
     private var prefixColor: Color {
         switch line.kind {
         case .stdout: .secondary
-        case .stderr: .red
+        case .stderr: isBenignToolingWarning ? .orange : .red
         case .system: .accentColor
         }
     }
@@ -1284,9 +1290,15 @@ private struct LogLineView: View {
     private var textColor: Color {
         switch line.kind {
         case .stdout: .primary
-        case .stderr: .red
+        case .stderr: isBenignToolingWarning ? .secondary : .red
         case .system: .secondary
         }
+    }
+
+    private var isBenignToolingWarning: Bool {
+        line.kind == .stderr
+        && line.text.contains(" WARN codex_core_")
+        && line.text.contains("ignoring interface.")
     }
 }
 
