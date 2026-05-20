@@ -95,6 +95,21 @@ struct ProviderWizardTests {
         }
     }
 
+    @Test func providerAuthRecipesDescribeOfficialAccountAndAPIKeyLanes() {
+        let codex = ProviderAuthRecipe.recipe(for: "openai.codex")
+        #expect(codex.accountLoginCommands.contains { $0.command == "codex login" })
+        #expect(codex.apiKeyEnvironmentVariables.contains("OPENAI_API_KEY"))
+        #expect(!codex.directOAuthSupported)
+
+        let qwen = ProviderAuthRecipe.recipe(for: "qwen.code")
+        #expect(qwen.directOAuthNote.localizedCaseInsensitiveContains("discontinued"))
+        #expect(qwen.apiKeyEnvironmentVariables.contains("DASHSCOPE_API_KEY"))
+
+        let foundationModels = ProviderAuthRecipe.recipe(for: "apple.foundation-models")
+        #expect(foundationModels.accountLoginCommands.isEmpty)
+        #expect(!foundationModels.supportsAPIKey)
+    }
+
     @Test func deepSeekDefaultIncludesCustomProfileNote() {
         let arguments = GenericCLIAdapter.defaultCommandArguments(
             for: "deepseek.api",

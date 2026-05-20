@@ -24,9 +24,57 @@ struct RunPlan: Sendable {
     let projectID: String?
     let projectName: String?
     let projectRootPath: String?
+    let defaultWorkingPath: String?
+    let temporaryWorkingPath: String?
     let mode: AgentExecutionMode
     let score: RoutingScoreBreakdown
     let promptExcerptSyncEnabled: Bool
+    let allowToolCalling: Bool
+    let allowShellTools: Bool
+    let allowNetworkSearch: Bool
+    let allowFilesystemWrites: Bool
+    let contextCompactionEnabled: Bool
+    let contextCompactionThresholdTokens: Int
+
+    init(
+        providerSnapshot: AgentProviderSnapshot,
+        providerID: String,
+        providerName: String,
+        prompt: String,
+        projectID: String?,
+        projectName: String?,
+        projectRootPath: String?,
+        defaultWorkingPath: String? = nil,
+        temporaryWorkingPath: String? = nil,
+        mode: AgentExecutionMode,
+        score: RoutingScoreBreakdown,
+        promptExcerptSyncEnabled: Bool,
+        allowToolCalling: Bool = true,
+        allowShellTools: Bool = true,
+        allowNetworkSearch: Bool = false,
+        allowFilesystemWrites: Bool = true,
+        contextCompactionEnabled: Bool = true,
+        contextCompactionThresholdTokens: Int = 120_000
+    ) {
+        self.providerSnapshot = providerSnapshot
+        self.providerID = providerID
+        self.providerName = providerName
+        self.prompt = prompt
+        self.projectID = projectID
+        self.projectName = projectName
+        self.projectRootPath = projectRootPath
+        self.defaultWorkingPath = defaultWorkingPath
+        self.temporaryWorkingPath = temporaryWorkingPath
+        self.mode = mode
+        self.score = score
+        self.promptExcerptSyncEnabled = promptExcerptSyncEnabled
+        self.allowToolCalling = allowToolCalling
+        self.allowShellTools = allowShellTools
+        self.allowNetworkSearch = allowNetworkSearch
+        self.allowFilesystemWrites = allowFilesystemWrites
+        self.contextCompactionEnabled = contextCompactionEnabled
+        self.contextCompactionThresholdTokens = contextCompactionThresholdTokens
+    }
 }
 
 /// MainActor-isolated, observable controller for the active run.
@@ -132,6 +180,11 @@ final class RunDispatcher {
     private(set) var activeOutcomeID: String?
     private(set) var promptTokens: Int = 0
     private(set) var completionTokens: Int = 0
+    private(set) var cachedPromptTokens: Int = 0
+    private(set) var reasoningTokens: Int = 0
+    private(set) var preflightStartedAt: Date?
+    private(set) var preflightEndedAt: Date?
+    private(set) var preprocessingSeconds: Double = 0
     private(set) var checkpointStatus: CheckpointStatus = .notRequested
     private(set) var preflightExcerpt: String?
     private(set) var currentPlan: RunPlan?
@@ -190,6 +243,11 @@ final class RunDispatcher {
         activeOutcomeID = nil
         promptTokens = 0
         completionTokens = 0
+        cachedPromptTokens = 0
+        reasoningTokens = 0
+        preflightStartedAt = nil
+        preflightEndedAt = nil
+        preprocessingSeconds = 0
         checkpointStatus = .notRequested
         preflightExcerpt = nil
         currentPlan = nil
@@ -218,6 +276,8 @@ final class RunDispatcher {
         reset()
         status = .preparing
         currentPlan = plan
+        let preflightStart = now()
+        preflightStartedAt = preflightStart
         let preflightPromptText = agentNotesPreflightSummary?.promptInjectionText ?? agentNotesExcerpt
         preflightExcerpt = preflightPromptText
         appendSystem("Approved \(plan.providerName) for \(plan.mode.label).")
@@ -235,17 +295,19 @@ final class RunDispatcher {
 
         let promptForCommand = Self.composeCommandPrompt(
             userPrompt: plan.prompt,
-            agentNotesExcerpt: preflightPromptText
+            agentNotesExcerpt: preflightPromptText,
+            workspacePolicy: Self.workspacePolicyPrompt(for: plan)
         )
 
         let command: AgentCommand
         do {
-            command = try adapter.buildCommand(
+            let baseCommand = try adapter.buildCommand(
                 prompt: promptForCommand,
-                projectPath: plan.projectRootPath,
+                projectPath: Self.effectiveWorkingPath(for: plan),
                 mode: plan.mode,
                 provider: plan.providerSnapshot
             )
+            command = Self.applyingWorkspaceEnvironment(to: baseCommand, plan: plan)
         } catch let error as AgentProcessError {
             persistFailedDispatch(plan: plan, modelContext: modelContext, message: error.errorDescription ?? "Failed to build command")
             return
@@ -257,6 +319,8 @@ final class RunDispatcher {
         displayedCommand = command.displayCommand
         let startedAtTimestamp = now()
         startedAt = startedAtTimestamp
+        preflightEndedAt = startedAtTimestamp
+        preprocessingSeconds = startedAtTimestamp.timeIntervalSince(preflightStart)
 
         let records = persistApprovalRecords(plan: plan, command: command, modelContext: modelContext, startedAt: startedAtTimestamp)
         activeOutcome = records.outcome
@@ -320,16 +384,99 @@ final class RunDispatcher {
     /// Build the prompt the agent will actually receive. Embeds the
     /// AgentNotes excerpt above the user's prompt so cross-agent claims are
     /// visible as part of the run's input.
-    static func composeCommandPrompt(userPrompt: String, agentNotesExcerpt: String?) -> String {
-        guard let excerpt = agentNotesExcerpt, !excerpt.isEmpty else {
-            return userPrompt
+    static func composeCommandPrompt(
+        userPrompt: String,
+        agentNotesExcerpt: String?,
+        workspacePolicy: String? = nil
+    ) -> String {
+        let excerpt = agentNotesExcerpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let policy = workspacePolicy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var sections: [String] = []
+        if !policy.isEmpty {
+            sections.append("""
+            Workspace policy for this run:
+            \(policy)
+            """)
         }
+        if !excerpt.isEmpty {
+            sections.append("""
+            Active AgentNotes excerpt (read-only, latest snapshot from disk):
+            \(excerpt)
+            """)
+        }
+        sections.append(userPrompt)
+        return sections.joined(separator: "\n---\n")
+    }
+
+    static func effectiveWorkingPath(for plan: RunPlan) -> String? {
+        let override = plan.defaultWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let override, !override.isEmpty {
+            return override
+        }
+        return plan.projectRootPath
+    }
+
+    static func workspacePolicyPrompt(for plan: RunPlan) -> String {
+        let workingPath = effectiveWorkingPath(for: plan) ?? "provider default"
+        let tempPath = plan.temporaryWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tempLine = tempPath?.isEmpty == false ? tempPath! : "provider default"
+        let compaction = plan.contextCompactionEnabled
+            ? "Enabled near \(plan.contextCompactionThresholdTokens.formatted()) tokens."
+            : "Disabled for this workspace."
         return """
-        Active AgentNotes excerpt (read-only, latest snapshot from disk):
-        \(excerpt)
-        ---
-        \(userPrompt)
+        Working path: \(workingPath)
+        Temporary path: \(tempLine)
+        Tool calling allowed: \(plan.allowToolCalling ? "yes" : "no")
+        Shell tools allowed: \(plan.allowShellTools ? "yes" : "no")
+        Network search allowed: \(plan.allowNetworkSearch ? "yes" : "no")
+        Filesystem writes allowed: \(plan.allowFilesystemWrites ? "yes" : "no")
+        Context compaction: \(compaction)
         """
+    }
+
+    static func applyingWorkspaceEnvironment(to command: AgentCommand, plan: RunPlan) -> AgentCommand {
+        var environment = command.environment
+        if let temporaryPath = plan.temporaryWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !temporaryPath.isEmpty {
+            try? FileManager.default.createDirectory(
+                atPath: temporaryPath,
+                withIntermediateDirectories: true
+            )
+            environment["TMPDIR"] = environment["TMPDIR"] ?? temporaryPath
+            environment["AGENIC_TMPDIR"] = temporaryPath
+        }
+        environment["AGENIC_TOOL_CALLING_ALLOWED"] = plan.allowToolCalling ? "1" : "0"
+        environment["AGENIC_SHELL_TOOLS_ALLOWED"] = plan.allowShellTools ? "1" : "0"
+        environment["AGENIC_NETWORK_SEARCH_ALLOWED"] = plan.allowNetworkSearch ? "1" : "0"
+        environment["AGENIC_FILESYSTEM_WRITES_ALLOWED"] = plan.allowFilesystemWrites ? "1" : "0"
+
+        return AgentCommand(
+            id: command.id,
+            providerID: command.providerID,
+            executablePath: command.executablePath,
+            arguments: command.arguments,
+            environment: environment,
+            workingDirectory: command.workingDirectory,
+            standardInput: command.standardInput,
+            requiresApproval: command.requiresApproval
+        )
+    }
+
+    static func summaryBufferCharacterLimit(for plan: RunPlan) -> Int {
+        let defaultsValue = UserDefaults.standard.integer(forKey: "Agenic.summaryBufferCharacterLimit")
+        let configured = defaultsValue > 0 ? defaultsValue : RunSummaryInput.maxBufferBytes
+        guard plan.contextCompactionEnabled else {
+            return max(512, min(configured, 24_000))
+        }
+        let tokenBudgetApprox = max(1_000, plan.contextCompactionThresholdTokens / 48)
+        return max(512, min(configured, tokenBudgetApprox, 12_000))
+    }
+
+    static func summaryPromptCharacterLimit(for plan: RunPlan) -> Int {
+        guard plan.contextCompactionEnabled else {
+            return 8_000
+        }
+        return max(512, min(2_000, plan.contextCompactionThresholdTokens / 96))
     }
 
     /// Request cancellation of the in-flight run. Idempotent.
@@ -463,7 +610,9 @@ final class RunDispatcher {
             exitCode: exitCode,
             durationSeconds: outcome.durationSeconds,
             standardOutput: stdoutBuffer,
-            standardError: stderrBuffer
+            standardError: stderrBuffer,
+            maxBufferCharacters: Self.summaryBufferCharacterLimit(for: plan),
+            maxPromptCharacters: Self.summaryPromptCharacterLimit(for: plan)
         )
 
         do {
@@ -616,9 +765,12 @@ final class RunDispatcher {
             runID: outcome.runID,
             promptTokens: 0,
             completionTokens: 0,
+            cachedPromptTokens: 0,
+            reasoningTokens: 0,
             callCount: 1,
             estimatedCostUSD: plan.score.estimatedCostUSD,
             durationSeconds: 0,
+            preprocessingSeconds: preprocessingSeconds,
             sessionSeconds: 0,
             createdAt: startedAt
         )
@@ -756,7 +908,10 @@ final class RunDispatcher {
             }()
             usage.promptTokens = estimatedTokens.prompt
             usage.completionTokens = estimatedTokens.completion
+            usage.cachedPromptTokens = cachedPromptTokens
+            usage.reasoningTokens = reasoningTokens
             usage.durationSeconds = durationSeconds
+            usage.preprocessingSeconds = preprocessingSeconds
             usage.sessionSeconds = durationSeconds
         }
 
@@ -814,20 +969,33 @@ final class RunDispatcher {
         let parsed = TokenUsageParser.parse(line: line)
         promptTokens += parsed.prompt
         completionTokens += parsed.completion
+        cachedPromptTokens += parsed.cachedPrompt
+        reasoningTokens += parsed.reasoning
     }
 }
 
 /// Best-effort scanner for inline token usage markers emitted by streaming
 /// CLIs (Codex, Claude Code, etc.). When a line contains
-/// `"prompt_tokens": <n>` or `"completion_tokens": <n>` (or `prompt_tokens=<n>`
-/// shell-style pairs), the values are returned. Otherwise zeros are returned
-/// and the dispatcher falls back to a character-based estimate.
+/// `"prompt_tokens": <n>` / `"completion_tokens": <n>`, Codex-style
+/// `"input_tokens": <n>` / `"output_tokens": <n>`, or shell-style pairs,
+/// the values are returned. Otherwise zeros are returned and the dispatcher
+/// falls back to a character-based estimate.
 enum TokenUsageParser {
-    static func parse(line: String) -> (prompt: Int, completion: Int) {
+    static func parse(line: String) -> (prompt: Int, completion: Int, cachedPrompt: Int, reasoning: Int) {
         (
-            prompt: extractInt(forKey: "prompt_tokens", in: line),
-            completion: extractInt(forKey: "completion_tokens", in: line)
+            prompt: extractFirstInt(forKeys: ["prompt_tokens", "input_tokens"], in: line),
+            completion: extractFirstInt(forKeys: ["completion_tokens", "output_tokens"], in: line),
+            cachedPrompt: extractInt(forKey: "cached_input_tokens", in: line),
+            reasoning: extractInt(forKey: "reasoning_output_tokens", in: line)
         )
+    }
+
+    private static func extractFirstInt(forKeys keys: [String], in line: String) -> Int {
+        for key in keys {
+            let value = extractInt(forKey: key, in: line)
+            if value > 0 { return value }
+        }
+        return 0
     }
 
     private static func extractInt(forKey key: String, in line: String) -> Int {
@@ -938,7 +1106,7 @@ private extension String {
     }
 }
 
-private extension TimeInterval {
+extension TimeInterval {
     var formattedDurationSeconds: String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 1

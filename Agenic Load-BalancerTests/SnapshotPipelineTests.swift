@@ -33,13 +33,32 @@ struct SnapshotPipelineTests {
     /// Seed a context with a representative mix of records across every
     /// model so totals and round-trip tests have meaningful counts.
     private static func seed(_ context: ModelContext, projectName: String = "Demo") throws {
-        let project = AgentProject(name: projectName, rootPath: "/tmp/\(projectName)")
+        let project = AgentProject(
+            name: projectName,
+            rootPath: "/tmp/\(projectName)",
+            defaultWorkingPath: "/tmp/\(projectName)/Source",
+            temporaryWorkingPath: "/tmp/\(projectName)/.tmp",
+            allowToolCalling: true,
+            allowShellTools: false,
+            allowNetworkSearch: true,
+            allowFilesystemWrites: false,
+            contextCompactionEnabled: true,
+            contextCompactionThresholdTokens: 64_000
+        )
         let provider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
         let secondProvider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[1])
         let setup = ProviderSetupRecord(providerID: provider.identifier, setupStage: "auth")
         let thread = PromptThreadRecord(projectID: project.identifier, title: "Implement heatmap")
         let message = PromptMessageRecord(threadID: thread.identifier, role: "user", contentExcerpt: "Implement…")
-        let usage = UsageLedgerEntry(providerID: provider.identifier, runID: UUID().uuidString, promptTokens: 120, completionTokens: 80)
+        let usage = UsageLedgerEntry(
+            providerID: provider.identifier,
+            runID: UUID().uuidString,
+            promptTokens: 120,
+            completionTokens: 80,
+            cachedPromptTokens: 40,
+            reasoningTokens: 12,
+            preprocessingSeconds: 0.25
+        )
         let decision = RoutingDecisionRecord(
             promptThreadID: thread.identifier,
             selectedProviderID: provider.identifier,
@@ -80,6 +99,10 @@ struct SnapshotPipelineTests {
         #expect(decoded.checksum == payload.checksum)
         #expect(decoded.body.totalRecords == payload.body.totalRecords)
         #expect(decoded.body.projects.first?.name == "RoundTrip")
+        #expect(decoded.body.projects.first?.defaultWorkingPath == "/tmp/RoundTrip/Source")
+        #expect(decoded.body.projects.first?.allowShellTools == false)
+        #expect(decoded.body.usageEntries.first?.cachedPromptTokens == 40)
+        #expect(decoded.body.usageEntries.first?.reasoningTokens == 12)
         try SnapshotArchiveCodec.verify(decoded)
     }
 

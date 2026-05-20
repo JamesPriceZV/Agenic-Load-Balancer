@@ -182,6 +182,14 @@ struct ProjectDTO: Sendable, Codable, Hashable, Identifiable {
     let bookmarkData: Data?
     let agentNotesRelativePath: String
     let promptExcerptSyncEnabled: Bool
+    let defaultWorkingPath: String?
+    let temporaryWorkingPath: String?
+    let allowToolCalling: Bool?
+    let allowShellTools: Bool?
+    let allowNetworkSearch: Bool?
+    let allowFilesystemWrites: Bool?
+    let contextCompactionEnabled: Bool?
+    let contextCompactionThresholdTokens: Int?
     let createdAt: Date
     let updatedAt: Date
 
@@ -192,6 +200,14 @@ struct ProjectDTO: Sendable, Codable, Hashable, Identifiable {
         bookmarkData = record.bookmarkData
         agentNotesRelativePath = record.agentNotesRelativePath
         promptExcerptSyncEnabled = record.promptExcerptSyncEnabled
+        defaultWorkingPath = record.defaultWorkingPath
+        temporaryWorkingPath = record.temporaryWorkingPath
+        allowToolCalling = record.allowToolCalling
+        allowShellTools = record.allowShellTools
+        allowNetworkSearch = record.allowNetworkSearch
+        allowFilesystemWrites = record.allowFilesystemWrites
+        contextCompactionEnabled = record.contextCompactionEnabled
+        contextCompactionThresholdTokens = record.contextCompactionThresholdTokens
         createdAt = record.createdAt
         updatedAt = record.updatedAt
     }
@@ -204,6 +220,14 @@ struct ProjectDTO: Sendable, Codable, Hashable, Identifiable {
             bookmarkData: bookmarkData,
             agentNotesRelativePath: agentNotesRelativePath,
             promptExcerptSyncEnabled: promptExcerptSyncEnabled,
+            defaultWorkingPath: defaultWorkingPath,
+            temporaryWorkingPath: temporaryWorkingPath,
+            allowToolCalling: allowToolCalling ?? true,
+            allowShellTools: allowShellTools ?? true,
+            allowNetworkSearch: allowNetworkSearch ?? false,
+            allowFilesystemWrites: allowFilesystemWrites ?? true,
+            contextCompactionEnabled: contextCompactionEnabled ?? true,
+            contextCompactionThresholdTokens: contextCompactionThresholdTokens ?? 120_000,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -400,9 +424,12 @@ struct UsageLedgerDTO: Sendable, Codable, Hashable, Identifiable {
     let runID: String?
     let promptTokens: Int
     let completionTokens: Int
+    let cachedPromptTokens: Int?
+    let reasoningTokens: Int?
     let callCount: Int
     let estimatedCostUSD: Double
     let durationSeconds: Double
+    let preprocessingSeconds: Double?
     let sessionSeconds: Double
     let limitWindow: String
     let createdAt: Date
@@ -414,9 +441,12 @@ struct UsageLedgerDTO: Sendable, Codable, Hashable, Identifiable {
         runID = record.runID
         promptTokens = record.promptTokens
         completionTokens = record.completionTokens
+        cachedPromptTokens = record.cachedPromptTokens
+        reasoningTokens = record.reasoningTokens
         callCount = record.callCount
         estimatedCostUSD = record.estimatedCostUSD
         durationSeconds = record.durationSeconds
+        preprocessingSeconds = record.preprocessingSeconds
         sessionSeconds = record.sessionSeconds
         limitWindow = record.limitWindow
         createdAt = record.createdAt
@@ -430,9 +460,12 @@ struct UsageLedgerDTO: Sendable, Codable, Hashable, Identifiable {
             runID: runID,
             promptTokens: promptTokens,
             completionTokens: completionTokens,
+            cachedPromptTokens: cachedPromptTokens ?? 0,
+            reasoningTokens: reasoningTokens ?? 0,
             callCount: callCount,
             estimatedCostUSD: estimatedCostUSD,
             durationSeconds: durationSeconds,
+            preprocessingSeconds: preprocessingSeconds ?? 0,
             sessionSeconds: sessionSeconds,
             limitWindow: limitWindow,
             createdAt: createdAt

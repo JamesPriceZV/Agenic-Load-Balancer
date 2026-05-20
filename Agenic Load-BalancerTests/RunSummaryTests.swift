@@ -199,7 +199,7 @@ struct RunSummaryTests {
 
     @Test func runSummaryInputTruncatesLargeBuffersFromTail() {
         // Build a 20 000-char buffer of repeating digits and verify only
-        // the last `maxBufferBytes` characters survive, with a "[truncated]"
+        // the last `maxBufferBytes` characters survive, with a compaction
         // marker prepended so the model knows content was dropped.
         let large = String(repeating: "0123456789", count: 2_000)
         let input = RunSummaryInput(
@@ -213,7 +213,7 @@ struct RunSummaryTests {
             standardError: ""
         )
         let truncated = input.truncatedStandardOutput
-        #expect(truncated.hasPrefix("[truncated"))
+        #expect(truncated.hasPrefix("[compacted"))
         #expect(truncated.count <= RunSummaryInput.maxBufferBytes + 64)
     }
 

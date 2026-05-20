@@ -82,30 +82,61 @@ struct RunSummaryInput: Sendable {
     let durationSeconds: Double
     let standardOutput: String
     let standardError: String
+    let maxBufferCharacters: Int
+    let maxPromptCharacters: Int
 
     /// Hard cap on bytes fed into the prompt so a chatty CLI doesn't blow
     /// out the model's context window. Tail of the buffer is preferred so
     /// the most recent (typically most relevant) lines survive truncation.
-    static let maxBufferBytes = 12_000
+    static let maxBufferBytes = 4_000
+    static let maxPromptBytes = 2_000
+
+    init(
+        prompt: String,
+        providerID: String,
+        providerName: String,
+        mode: AgentExecutionMode,
+        exitCode: Int32?,
+        durationSeconds: Double,
+        standardOutput: String,
+        standardError: String,
+        maxBufferCharacters: Int = Self.maxBufferBytes,
+        maxPromptCharacters: Int = Self.maxPromptBytes
+    ) {
+        self.prompt = prompt
+        self.providerID = providerID
+        self.providerName = providerName
+        self.mode = mode
+        self.exitCode = exitCode
+        self.durationSeconds = durationSeconds
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.maxBufferCharacters = max(512, maxBufferCharacters)
+        self.maxPromptCharacters = max(512, maxPromptCharacters)
+    }
+
+    var truncatedPrompt: String {
+        Self.truncate(prompt, maxCharacters: maxPromptCharacters)
+    }
 
     /// Tail-truncated copy of the standard output buffer — the last
     /// `maxBufferBytes` characters, prefixed with a marker if anything was
     /// dropped. Used by live summarizers so they don't have to repeat the
     /// truncation logic.
     var truncatedStandardOutput: String {
-        Self.truncate(standardOutput)
+        Self.truncate(standardOutput, maxCharacters: maxBufferCharacters)
     }
 
     /// Tail-truncated copy of the standard error buffer. Same shape as
     /// `truncatedStandardOutput`.
     var truncatedStandardError: String {
-        Self.truncate(standardError)
+        Self.truncate(standardError, maxCharacters: maxBufferCharacters)
     }
 
-    private static func truncate(_ buffer: String) -> String {
-        guard buffer.count > maxBufferBytes else { return buffer }
-        let suffix = String(buffer.suffix(maxBufferBytes))
-        return "[truncated to last \(maxBufferBytes) chars]\n" + suffix
+    private static func truncate(_ buffer: String, maxCharacters: Int) -> String {
+        guard buffer.count > maxCharacters else { return buffer }
+        let suffix = String(buffer.suffix(maxCharacters))
+        return "[compacted to last \(maxCharacters) chars from \(buffer.count) chars]\n" + suffix
     }
 }
 
@@ -326,7 +357,7 @@ struct LiveFoundationModelsRunSummarizer: RunSummarizing {
         Exit code: \(exit)
 
         --- Original user prompt ---
-        \(input.prompt)
+        \(input.truncatedPrompt)
 
         --- Standard output (tail) ---
         \(input.truncatedStandardOutput)

@@ -11,6 +11,14 @@ import SwiftUI
 
 struct AutonomyControlCenterView: View {
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("Agenic.allowToolCalling") private var defaultAllowToolCalling = true
+    @AppStorage("Agenic.allowShellTools") private var defaultAllowShellTools = true
+    @AppStorage("Agenic.allowNetworkSearch") private var defaultAllowNetworkSearch = false
+    @AppStorage("Agenic.allowFilesystemWrites") private var defaultAllowFilesystemWrites = true
+    @AppStorage("Agenic.defaultWorkingPath") private var appDefaultWorkingPath = ""
+    @AppStorage("Agenic.defaultTemporaryPath") private var appDefaultTemporaryPath = ""
+    @AppStorage("Agenic.contextCompactionEnabled") private var appContextCompactionEnabled = true
+    @AppStorage("Agenic.contextCompactionThresholdTokens") private var appContextCompactionThresholdTokens = 120_000
 
     let projects: [AgentProject]
     let providers: [AgentProviderProfile]
@@ -340,12 +348,35 @@ struct AutonomyControlCenterView: View {
                 projectID: selectedProject?.identifier,
                 projectName: selectedProject?.name,
                 projectRootPath: selectedProject?.rootPath,
+                defaultWorkingPath: effectiveWorkingPath,
+                temporaryWorkingPath: effectiveTemporaryPath,
                 mode: task.mode,
                 score: score,
-                promptExcerptSyncEnabled: selectedProject?.promptExcerptSyncEnabled ?? false
+                promptExcerptSyncEnabled: selectedProject?.promptExcerptSyncEnabled ?? false,
+                allowToolCalling: selectedProject?.allowToolCalling ?? defaultAllowToolCalling,
+                allowShellTools: selectedProject?.allowShellTools ?? defaultAllowShellTools,
+                allowNetworkSearch: selectedProject?.allowNetworkSearch ?? defaultAllowNetworkSearch,
+                allowFilesystemWrites: selectedProject?.allowFilesystemWrites ?? defaultAllowFilesystemWrites,
+                contextCompactionEnabled: selectedProject?.contextCompactionEnabled ?? appContextCompactionEnabled,
+                contextCompactionThresholdTokens: selectedProject?.contextCompactionThresholdTokens ?? appContextCompactionThresholdTokens
             )
         )
         statusText = "Run prepared for \(provider.displayName). Review and approve before it starts."
+    }
+
+    private var effectiveWorkingPath: String? {
+        let projectPath = selectedProject?.defaultWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let projectPath, !projectPath.isEmpty { return projectPath }
+        let appPath = appDefaultWorkingPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !appPath.isEmpty { return appPath }
+        return selectedProject?.rootPath
+    }
+
+    private var effectiveTemporaryPath: String? {
+        let projectPath = selectedProject?.temporaryWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let projectPath, !projectPath.isEmpty { return projectPath }
+        let appPath = appDefaultTemporaryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return appPath.isEmpty ? nil : appPath
     }
 
     @MainActor

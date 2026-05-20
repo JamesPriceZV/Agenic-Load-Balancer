@@ -226,6 +226,15 @@ struct SettingsView: View {
     @AppStorage("Agenic.defaultMaxTokens") private var defaultMaxTokens = 1024
     @AppStorage("Agenic.temperature") private var temperature = 0.6
     @AppStorage("Agenic.requireMutatingActionApproval") private var requireMutatingActionApproval = true
+    @AppStorage("Agenic.allowToolCalling") private var allowToolCalling = true
+    @AppStorage("Agenic.allowShellTools") private var allowShellTools = true
+    @AppStorage("Agenic.allowNetworkSearch") private var allowNetworkSearch = false
+    @AppStorage("Agenic.allowFilesystemWrites") private var allowFilesystemWrites = true
+    @AppStorage("Agenic.defaultWorkingPath") private var defaultWorkingPath = ""
+    @AppStorage("Agenic.defaultTemporaryPath") private var defaultTemporaryPath = ""
+    @AppStorage("Agenic.contextCompactionEnabled") private var contextCompactionEnabled = true
+    @AppStorage("Agenic.contextCompactionThresholdTokens") private var contextCompactionThresholdTokens = 120_000
+    @AppStorage("Agenic.summaryBufferCharacterLimit") private var summaryBufferCharacterLimit = RunSummaryInput.maxBufferBytes
 
     @State private var selectedTab: AgenicSettingsTab
     @State private var cloudStatus = CloudSyncStatusSnapshot(
@@ -379,12 +388,32 @@ struct SettingsView: View {
                 settingsRow("Prompt excerpt sync", "\(projects.filter(\.promptExcerptSyncEnabled).count) enabled")
                 settingsRow("Heatmap providers", "Configured only")
             }
+            settingsSection("Compaction") {
+                Toggle("Compact long provider output before AI summaries", isOn: $contextCompactionEnabled)
+                    .toggleStyle(.switch)
+                Stepper(value: $contextCompactionThresholdTokens, in: 8_000...1_000_000, step: 8_000) {
+                    LabeledContent("Context threshold", value: "\(contextCompactionThresholdTokens.formatted()) tokens")
+                }
+                Stepper(value: $summaryBufferCharacterLimit, in: 512...24_000, step: 512) {
+                    LabeledContent("Summary transcript cap", value: "\(summaryBufferCharacterLimit.formatted()) chars per stream")
+                }
+            }
         case .tools:
             settingsSection("Command Bar") {
                 Toggle("Require approval for mutating actions", isOn: $requireMutatingActionApproval)
                     .toggleStyle(.switch)
                 settingsRow("Tool actions", "Rank, Dispatch, Probe, Snapshot, Reconcile, Metrics")
                 settingsRow("Dispatch behavior", "Approval-gated run drafts")
+            }
+            settingsSection("Default Tool Permissions") {
+                Toggle("Allow tool calling", isOn: $allowToolCalling)
+                    .toggleStyle(.switch)
+                Toggle("Allow shell tools", isOn: $allowShellTools)
+                    .toggleStyle(.switch)
+                Toggle("Allow network search", isOn: $allowNetworkSearch)
+                    .toggleStyle(.switch)
+                Toggle("Allow filesystem writes", isOn: $allowFilesystemWrites)
+                    .toggleStyle(.switch)
             }
         case .agents:
             settingsSection("Providers") {
@@ -398,6 +427,15 @@ struct SettingsView: View {
                 settingsRow("Runner", "Local process + Foundation Models composite")
                 settingsRow("Approval model", "Approve then run")
                 settingsRow("Secrets", "Keychain references only")
+            }
+            settingsSection("Default Paths") {
+                TextField("Default working path", text: $defaultWorkingPath)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Default temporary path", text: $defaultTemporaryPath)
+                    .textFieldStyle(.roundedBorder)
+                Text("Project settings override these defaults for runs launched from a configured workspace.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         case .memory:
             settingsSection("AgentNotes") {

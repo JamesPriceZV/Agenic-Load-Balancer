@@ -23,12 +23,15 @@ struct ContentView: View {
     @Query private var decisions: [RoutingDecisionRecord]
     @Query private var coordinationEvents: [CoordinationEventRecord]
     @Query private var snapshots: [CloudSnapshotRecord]
+    @Query private var autonomyGoals: [AutonomyGoalRecord]
+    @Query private var autonomyTasks: [AutonomyTaskRecord]
 
     @State private var selectedSection: ConsoleSection? = .dashboard
     @State private var showingCommandBar = false
     @State private var showingSettingsSheet = false
     @State private var settingsInitialTab: AgenicSettingsTab = .storage
     @State private var promptRunSessions: [PromptRunSession] = []
+    @State private var expandedProjectIDs: Set<String> = []
     @State private var cloudStatus = CloudSyncStatusSnapshot(
         containerIdentifier: AgenicDataModel.cloudKitContainerIdentifier,
         lastLocalSave: nil,
@@ -49,7 +52,7 @@ struct ContentView: View {
 
                 Section("Configure") {
                     sidebarItem(.providers, "Providers", "externaldrive.connected.to.line.below")
-                    sidebarItem(.projects, "Projects", "folder.badge.gearshape")
+                    workspaceSidebar
                     sidebarItem(.restoreCenter, "Restore", "icloud.and.arrow.down")
                     sidebarItem(.agentNotes, "AgentNotes", "checklist")
                 }
@@ -145,6 +148,22 @@ struct ContentView: View {
             ProviderSetupView(providers: providers)
         case .projects:
             ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+        case .workspace(let projectID):
+            if let project = projects.first(where: { $0.identifier == projectID }) {
+                WorkspaceProjectDetailView(
+                    project: project,
+                    tasks: taskSummaries(for: project),
+                    onOpenProjects: { selectedSection = .projects }
+                )
+            } else {
+                ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+            }
+        case .workspaceTask(let taskID):
+            if let summary = taskSummary(withID: taskID) {
+                WorkspaceTaskDetailView(summary: summary)
+            } else {
+                ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+            }
         case .history:
             HistoryView(decisions: decisions, outcomes: outcomes, usageEntries: usageEntries)
         case .restoreCenter:
@@ -165,6 +184,174 @@ struct ContentView: View {
         NavigationLink(value: section) {
             Label(label, systemImage: systemImage)
         }
+    }
+
+    @ViewBuilder
+    private var workspaceSidebar: some View {
+        DisclosureGroup(
+            isExpanded: Binding(
+                get: { !expandedProjectIDs.isEmpty || selectedSection?.isProjectRelated == true },
+                set: { isExpanded in
+                    if isExpanded {
+                        expandedProjectIDs = Set(projects.map(\.identifier))
+                    } else {
+                        expandedProjectIDs.removeAll()
+                    }
+                }
+            )
+        ) {
+            Button {
+                selectedSection = .projects
+            } label: {
+                Label("Manage Workspaces", systemImage: "folder.badge.gearshape")
+            }
+            .buttonStyle(.plain)
+
+            ForEach(projects, id: \.identifier) { project in
+                workspaceTree(project)
+            }
+        } label: {
+            Label("Projects", systemImage: "folder.badge.gearshape")
+        }
+    }
+
+    @ViewBuilder
+    private func workspaceTree(_ project: AgentProject) -> some View {
+        let tasks = taskSummaries(for: project)
+        DisclosureGroup(
+            isExpanded: Binding(
+                get: { expandedProjectIDs.contains(project.identifier) },
+                set: { isExpanded in
+                    if isExpanded {
+                        expandedProjectIDs.insert(project.identifier)
+                    } else {
+                        expandedProjectIDs.remove(project.identifier)
+                    }
+                }
+            )
+        ) {
+            Button {
+                selectedSection = .workspace(project.identifier)
+            } label: {
+                HStack {
+                    Text("Workspace")
+                    Spacer()
+                    Text("\(tasks.count)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            ForEach(tasks.prefix(6)) { task in
+                Button {
+                    selectedSection = .workspaceTask(task.id)
+                } label: {
+                    WorkspaceTaskSidebarRow(summary: task)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if tasks.count > 6 {
+                Button {
+                    selectedSection = .workspace(project.identifier)
+                } label: {
+                    Text("Show \(tasks.count - 6) more")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        } label: {
+            HStack {
+                Image(systemName: "folder")
+                Text(project.name)
+                    .lineLimit(1)
+                Spacer()
+                activeTaskIndicator(tasks)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activeTaskIndicator(_ tasks: [WorkspaceTaskSummary]) -> some View {
+        if tasks.contains(where: \.isActive) {
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 18, height: 18)
+        } else if !tasks.isEmpty {
+            Text("\(tasks.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func taskSummaries(for project: AgentProject) -> [WorkspaceTaskSummary] {
+        let eventTasks = coordinationEvents
+            .filter { $0.projectID == project.identifier }
+            .map { event in
+                WorkspaceTaskSummary(
+                    id: "coordination:\(event.identifier)",
+                    projectID: project.identifier,
+                    projectName: project.name,
+                    title: event.title,
+                    subtitle: "\(event.phase) / \(event.wave) / \(event.step)",
+                    detail: event.detail,
+                    status: event.status,
+                    providerID: nil,
+                    runID: event.relatedRunID,
+                    createdAt: event.createdAt,
+                    updatedAt: event.createdAt,
+                    source: "AgentNotes coordination"
+                )
+            }
+
+        let eventRunIDs = Set(coordinationEvents.compactMap(\.relatedRunID))
+        let runTasks = outcomes
+            .filter { $0.projectID == project.identifier && !eventRunIDs.contains($0.runID) }
+            .map { outcome in
+                WorkspaceTaskSummary(
+                    id: "run:\(outcome.runID)",
+                    projectID: project.identifier,
+                    projectName: project.name,
+                    title: "Run \(outcome.runID.prefix(8))",
+                    subtitle: outcome.providerID,
+                    detail: outcome.userFeedback.isEmpty ? outcome.buildResult : outcome.userFeedback,
+                    status: outcome.status,
+                    providerID: outcome.providerID,
+                    runID: outcome.runID,
+                    createdAt: outcome.startedAt,
+                    updatedAt: outcome.endedAt ?? outcome.startedAt,
+                    source: "Run history"
+                )
+            }
+
+        let goalIDs = Set(autonomyGoals.filter { $0.projectID == project.identifier }.map(\.identifier))
+        let autonomyTaskSummaries = autonomyTasks
+            .filter { task in task.goalID.map { goalIDs.contains($0) } ?? false }
+            .map { task in
+                WorkspaceTaskSummary(
+                    id: "autonomy:\(task.identifier)",
+                    projectID: project.identifier,
+                    projectName: project.name,
+                    title: task.title,
+                    subtitle: AgentExecutionMode(rawValue: task.mode)?.label ?? task.mode,
+                    detail: task.detail,
+                    status: task.status,
+                    providerID: task.assignedProviderID,
+                    runID: nil,
+                    createdAt: task.createdAt,
+                    updatedAt: task.updatedAt,
+                    source: "Autonomy task"
+                )
+            }
+
+        return (eventTasks + runTasks + autonomyTaskSummaries)
+            .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+    }
+
+    private func taskSummary(withID id: String) -> WorkspaceTaskSummary? {
+        projects.lazy
+            .flatMap { taskSummaries(for: $0) }
+            .first { $0.id == id }
     }
 
     private func refreshCloudStatus() async {
@@ -190,17 +377,261 @@ struct ContentView: View {
     }
 }
 
-private enum ConsoleSection: String, CaseIterable, Identifiable, Hashable {
+private enum ConsoleSection: Identifiable, Hashable {
     case dashboard
     case promptRouter
     case autonomy
     case providers
     case projects
+    case workspace(String)
+    case workspaceTask(String)
     case history
     case restoreCenter
     case agentNotes
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .dashboard: "dashboard"
+        case .promptRouter: "promptRouter"
+        case .autonomy: "autonomy"
+        case .providers: "providers"
+        case .projects: "projects"
+        case .workspace(let projectID): "workspace:\(projectID)"
+        case .workspaceTask(let taskID): "workspaceTask:\(taskID)"
+        case .history: "history"
+        case .restoreCenter: "restoreCenter"
+        case .agentNotes: "agentNotes"
+        }
+    }
+
+    var isProjectRelated: Bool {
+        switch self {
+        case .projects, .workspace, .workspaceTask:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+private struct WorkspaceTaskSummary: Identifiable, Hashable {
+    let id: String
+    let projectID: String
+    let projectName: String
+    let title: String
+    let subtitle: String
+    let detail: String
+    let status: String
+    let providerID: String?
+    let runID: String?
+    let createdAt: Date
+    let updatedAt: Date
+    let source: String
+
+    var isActive: Bool {
+        CoordinationStatus.isActiveForPreflight(status) || status == RunStatus.running.rawValue
+    }
+
+    var statusTint: Color {
+        switch status {
+        case RunStatus.succeeded.rawValue, CoordinationStatus.completed.rawValue, CoordinationStatus.checkpointed.rawValue:
+            return .green
+        case RunStatus.failed.rawValue, CoordinationStatus.conflict.rawValue, CoordinationStatus.blocked.rawValue:
+            return .red
+        case RunStatus.cancelled.rawValue, CoordinationStatus.cancelled.rawValue:
+            return .orange
+        case RunStatus.running.rawValue, CoordinationStatus.inProgress.rawValue:
+            return .blue
+        default:
+            return .secondary
+        }
+    }
+}
+
+private struct WorkspaceTaskSidebarRow: View {
+    let summary: WorkspaceTaskSummary
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(summary.statusTint)
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.title)
+                    .lineLimit(1)
+                Text(summary.updatedAt, style: .relative)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if summary.isActive {
+                ProgressView()
+                    .scaleEffect(0.45)
+                    .frame(width: 16, height: 16)
+            }
+        }
+        .padding(.leading, 14)
+    }
+}
+
+private struct WorkspaceProjectDetailView: View {
+    let project: AgentProject
+    let tasks: [WorkspaceTaskSummary]
+    let onOpenProjects: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.name)
+                            .font(.largeTitle.weight(.semibold))
+                        Text(project.rootPath ?? "No folder selected")
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    Spacer()
+                    Button {
+                        onOpenProjects()
+                    } label: {
+                        Label("Workspace Settings", systemImage: "slider.horizontal.3")
+                    }
+                }
+
+                GlassPanel {
+                    HStack(spacing: 16) {
+                        WorkspaceMetric(label: "Tasks", value: "\(tasks.count)")
+                        WorkspaceMetric(label: "Active", value: "\(tasks.filter(\.isActive).count)")
+                        WorkspaceMetric(label: "Runs", value: "\(tasks.filter { $0.runID != nil }.count)")
+                        WorkspaceMetric(label: "Tool policy", value: project.allowToolCalling ? "Allowed" : "Off")
+                    }
+                }
+
+                GlassPanel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Workspace Paths")
+                            .font(.headline)
+                        LabeledContent("Working path", value: project.defaultWorkingPath ?? project.rootPath ?? "Provider default")
+                        LabeledContent("Temporary path", value: project.temporaryWorkingPath ?? "Provider default")
+                        LabeledContent("Context compaction", value: project.contextCompactionEnabled ? "\(project.contextCompactionThresholdTokens.formatted()) tokens" : "Disabled")
+                    }
+                }
+
+                GlassPanel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Tasks")
+                            .font(.headline)
+                        if tasks.isEmpty {
+                            ContentUnavailableView(
+                                "No tasks tracked yet",
+                                systemImage: "checklist",
+                                description: Text("Runs, AgentNotes coordination records, and autonomy tasks for this workspace appear here.")
+                            )
+                        } else {
+                            ForEach(tasks) { task in
+                                WorkspaceTaskInlineRow(summary: task)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+private struct WorkspaceTaskDetailView: View {
+    let summary: WorkspaceTaskSummary
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(summary.title)
+                        .font(.largeTitle.weight(.semibold))
+                    Text("\(summary.projectName) · \(summary.source)")
+                        .foregroundStyle(.secondary)
+                }
+
+                GlassPanel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("Status") {
+                            Text(summary.status)
+                                .foregroundStyle(summary.statusTint)
+                        }
+                        LabeledContent("Updated", value: summary.updatedAt.formatted(date: .abbreviated, time: .standard))
+                        LabeledContent("Created", value: summary.createdAt.formatted(date: .abbreviated, time: .standard))
+                        if let providerID = summary.providerID {
+                            LabeledContent("Provider", value: providerID)
+                        }
+                        if let runID = summary.runID {
+                            LabeledContent("Run ID", value: runID)
+                        }
+                    }
+                }
+
+                GlassPanel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(summary.subtitle)
+                            .font(.headline)
+                        Text(summary.detail.isEmpty ? "No detail recorded." : summary.detail)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+private struct WorkspaceMetric: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.semibold))
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct WorkspaceTaskInlineRow: View {
+    let summary: WorkspaceTaskSummary
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(summary.statusTint)
+                .frame(width: 8, height: 8)
+                .padding(.top, 6)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(summary.title)
+                    .font(.subheadline.weight(.medium))
+                Text(summary.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(summary.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Text(summary.status)
+                .font(.caption)
+                .foregroundStyle(summary.statusTint)
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.35)
+        }
+    }
 }
 
 @MainActor
@@ -434,6 +865,14 @@ private struct DashboardView: View {
 
 private struct PromptRouterView: View {
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("Agenic.allowToolCalling") private var defaultAllowToolCalling = true
+    @AppStorage("Agenic.allowShellTools") private var defaultAllowShellTools = true
+    @AppStorage("Agenic.allowNetworkSearch") private var defaultAllowNetworkSearch = false
+    @AppStorage("Agenic.allowFilesystemWrites") private var defaultAllowFilesystemWrites = true
+    @AppStorage("Agenic.defaultWorkingPath") private var appDefaultWorkingPath = ""
+    @AppStorage("Agenic.defaultTemporaryPath") private var appDefaultTemporaryPath = ""
+    @AppStorage("Agenic.contextCompactionEnabled") private var appContextCompactionEnabled = true
+    @AppStorage("Agenic.contextCompactionThresholdTokens") private var appContextCompactionThresholdTokens = 120_000
 
     let projects: [AgentProject]
     let providers: [AgentProviderProfile]
@@ -694,7 +1133,7 @@ private struct PromptRouterView: View {
                 .makeAdapter(providerID: score.providerID)
                 .buildCommand(
                     prompt: prompt,
-                    projectPath: selectedProject?.rootPath,
+                    projectPath: effectiveWorkingPath,
                     mode: selectedMode,
                     provider: provider.snapshot()
                 )
@@ -717,10 +1156,33 @@ private struct PromptRouterView: View {
             projectID: selectedProject?.identifier,
             projectName: selectedProject?.name,
             projectRootPath: selectedProject?.rootPath,
+            defaultWorkingPath: effectiveWorkingPath,
+            temporaryWorkingPath: effectiveTemporaryPath,
             mode: selectedMode,
             score: score,
-            promptExcerptSyncEnabled: selectedProject?.promptExcerptSyncEnabled ?? false
+            promptExcerptSyncEnabled: selectedProject?.promptExcerptSyncEnabled ?? false,
+            allowToolCalling: selectedProject?.allowToolCalling ?? defaultAllowToolCalling,
+            allowShellTools: selectedProject?.allowShellTools ?? defaultAllowShellTools,
+            allowNetworkSearch: selectedProject?.allowNetworkSearch ?? defaultAllowNetworkSearch,
+            allowFilesystemWrites: selectedProject?.allowFilesystemWrites ?? defaultAllowFilesystemWrites,
+            contextCompactionEnabled: selectedProject?.contextCompactionEnabled ?? appContextCompactionEnabled,
+            contextCompactionThresholdTokens: selectedProject?.contextCompactionThresholdTokens ?? appContextCompactionThresholdTokens
         )
+    }
+
+    private var effectiveWorkingPath: String? {
+        let projectPath = selectedProject?.defaultWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let projectPath, !projectPath.isEmpty { return projectPath }
+        let appPath = appDefaultWorkingPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !appPath.isEmpty { return appPath }
+        return selectedProject?.rootPath
+    }
+
+    private var effectiveTemporaryPath: String? {
+        let projectPath = selectedProject?.temporaryWorkingPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let projectPath, !projectPath.isEmpty { return projectPath }
+        let appPath = appDefaultTemporaryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return appPath.isEmpty ? nil : appPath
     }
 
     private func presentApprovalSheet() {
@@ -1157,6 +1619,15 @@ struct ApprovalSheetView: View {
                 HStack(spacing: 12) {
                     Label("\(dispatcher.promptTokens) prompt tok", systemImage: "text.alignleft")
                     Label("\(dispatcher.completionTokens) completion tok", systemImage: "text.alignright")
+                    if dispatcher.cachedPromptTokens > 0 {
+                        Label("\(dispatcher.cachedPromptTokens) cached", systemImage: "bolt.horizontal.circle")
+                    }
+                    if dispatcher.reasoningTokens > 0 {
+                        Label("\(dispatcher.reasoningTokens) reasoning", systemImage: "brain")
+                    }
+                    if dispatcher.preprocessingSeconds > 0 {
+                        Label(dispatcher.preprocessingSeconds.formattedDurationSeconds, systemImage: "timer")
+                    }
                     Spacer()
                     if let runID = dispatcher.activeRunID {
                         Text("Run \(runID.prefix(8))")
@@ -1388,7 +1859,7 @@ struct ApprovalSheetView: View {
                 .makeAdapter(providerID: plan.providerID)
                 .buildCommand(
                     prompt: plan.prompt,
-                    projectPath: plan.projectRootPath,
+                    projectPath: RunDispatcher.effectiveWorkingPath(for: plan),
                     mode: plan.mode,
                     provider: plan.providerSnapshot
                 )
@@ -1795,6 +2266,10 @@ private struct ProviderSetupSheet: View {
 
     @State private var oauthCoordinator = OAuthSignInCoordinator()
 
+    private var authRecipe: ProviderAuthRecipe {
+        ProviderAuthRecipe.recipe(for: provider.identifier)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -1968,12 +2443,71 @@ private struct ProviderSetupSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Provider auth guide")
                         .font(.headline)
-                    Text(provider.authGuide)
+                    Text(authRecipe.primaryMethod)
                         .font(.callout)
+                    Text(authRecipe.billingBoundary)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Text(provider.authGuide)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Methods: \(provider.authMethods)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
+                    HStack {
+                        Button {
+                            openProviderAuthDocs()
+                        } label: {
+                            Label("Provider Docs", systemImage: "safari")
+                        }
+                        Spacer()
+                    }
+                }
+            }
+
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Account / browser sign-in")
+                        .font(.headline)
+                    Text(authRecipe.directOAuthNote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if authRecipe.accountLoginCommands.isEmpty {
+                        Label("No provider-managed browser login is registered for this provider.", systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(authRecipe.accountLoginCommands) { command in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(command.title)
+                                    .font(.subheadline.weight(.medium))
+                                Text(command.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                CommandCopyView(command: command.command)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    if !authRecipe.authProbeCommands.isEmpty {
+                        Divider()
+                        Text("Auth probes")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        ForEach(authRecipe.authProbeCommands) { command in
+                            LabeledContent(command.title) {
+                                CommandCopyView(command: command.command)
+                            }
+                        }
+                    }
+                    HStack {
+                        Button {
+                            markAccountLoginComplete()
+                        } label: {
+                            Label("Mark account login complete", systemImage: "checkmark.seal")
+                        }
+                        Spacer()
+                    }
                 }
             }
 
@@ -1984,6 +2518,11 @@ private struct ProviderSetupSheet: View {
                     Text("Stored only in the macOS Keychain (genericPassword). SwiftData/CloudKit hold a reference, never the secret.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if !authRecipe.apiKeyEnvironmentVariables.isEmpty {
+                        Text("Known env keys: \(authRecipe.apiKeyEnvironmentVariables.joined(separator: ", "))")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
                     SecureField("Paste API key", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
                     HStack {
@@ -2018,9 +2557,9 @@ private struct ProviderSetupSheet: View {
 
             GlassPanel {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Browser sign-in (OAuth)")
+                    Text("Advanced direct OAuth callback")
                         .font(.headline)
-                    Text("Opens an ASWebAuthenticationSession. Provide the provider's authorise URL and the URL scheme it redirects to.")
+                    Text(authRecipe.directOAuthSupported ? "Opens an ASWebAuthenticationSession when a provider publishes a direct authorize URL for this app." : "Most configured providers own their browser/device login inside the CLI. Use this only for a custom provider that gives you an authorize URL and callback scheme.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Authorise URL (https://…)", text: $oauthURL)
@@ -2286,6 +2825,24 @@ private struct ProviderSetupSheet: View {
         }
     }
 
+    private func openProviderAuthDocs() {
+        let target = authRecipe.docsURL.isEmpty ? provider.sourceURL : authRecipe.docsURL
+        guard let url = URL(string: target) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func markAccountLoginComplete() {
+        provider.authState = ProviderAuthState.authenticated.rawValue
+        provider.updatedAt = Date()
+        do {
+            try modelContext.save()
+            oauthStatus = "Account login marked authenticated for routing and dashboard setup."
+            Task { await AppServices.cloudSync.recordLocalSave() }
+        } catch {
+            oauthStatus = "Save failed: \(error.localizedDescription)"
+        }
+    }
+
     private func applyEnvVarToProfile() {
         var env = parseProfileEnv()
         env[envVarName] = envVarValue
@@ -2451,6 +3008,21 @@ private struct ProjectEditorTarget: Identifiable {
     }
 }
 
+private struct ProjectSettingsDraft {
+    var name: String
+    var rootPath: String?
+    var bookmarkData: Data?
+    var promptExcerptSyncEnabled: Bool
+    var defaultWorkingPath: String?
+    var temporaryWorkingPath: String?
+    var allowToolCalling: Bool
+    var allowShellTools: Bool
+    var allowNetworkSearch: Bool
+    var allowFilesystemWrites: Bool
+    var contextCompactionEnabled: Bool
+    var contextCompactionThresholdTokens: Int
+}
+
 private struct ProjectRow: View {
     let project: AgentProject
     let regenerateAgentNotes: () -> Void
@@ -2541,17 +3113,25 @@ private struct ProjectSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let project: AgentProject
-    let onSave: (String, String?, Data?, Bool) -> Void
+    let onSave: (ProjectSettingsDraft) -> Void
     let onDelete: () -> Void
 
     @State private var name: String
     @State private var rootPath: String?
     @State private var bookmarkData: Data?
     @State private var promptExcerptSyncEnabled: Bool
+    @State private var defaultWorkingPath: String
+    @State private var temporaryWorkingPath: String
+    @State private var allowToolCalling: Bool
+    @State private var allowShellTools: Bool
+    @State private var allowNetworkSearch: Bool
+    @State private var allowFilesystemWrites: Bool
+    @State private var contextCompactionEnabled: Bool
+    @State private var contextCompactionThresholdTokens: Int
 
     init(
         project: AgentProject,
-        onSave: @escaping (String, String?, Data?, Bool) -> Void,
+        onSave: @escaping (ProjectSettingsDraft) -> Void,
         onDelete: @escaping () -> Void
     ) {
         self.project = project
@@ -2561,6 +3141,14 @@ private struct ProjectSettingsSheet: View {
         _rootPath = State(initialValue: project.rootPath)
         _bookmarkData = State(initialValue: project.bookmarkData)
         _promptExcerptSyncEnabled = State(initialValue: project.promptExcerptSyncEnabled)
+        _defaultWorkingPath = State(initialValue: project.defaultWorkingPath ?? project.rootPath ?? "")
+        _temporaryWorkingPath = State(initialValue: project.temporaryWorkingPath ?? "")
+        _allowToolCalling = State(initialValue: project.allowToolCalling)
+        _allowShellTools = State(initialValue: project.allowShellTools)
+        _allowNetworkSearch = State(initialValue: project.allowNetworkSearch)
+        _allowFilesystemWrites = State(initialValue: project.allowFilesystemWrites)
+        _contextCompactionEnabled = State(initialValue: project.contextCompactionEnabled)
+        _contextCompactionThresholdTokens = State(initialValue: project.contextCompactionThresholdTokens)
     }
 
     var body: some View {
@@ -2611,6 +3199,58 @@ private struct ProjectSettingsSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    GlassPanel {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Execution")
+                                .font(.headline)
+                            LabeledContent("Default working path") {
+                                HStack(spacing: 8) {
+                                    TextField("Uses workspace root when blank", text: $defaultWorkingPath)
+                                        .textFieldStyle(.roundedBorder)
+                                    Button {
+                                        defaultWorkingPath = rootPath ?? ""
+                                    } label: {
+                                        Label("Root", systemImage: "folder")
+                                    }
+                                }
+                            }
+                            LabeledContent("Temporary path") {
+                                HStack(spacing: 8) {
+                                    TextField("Optional TMPDIR / AGENIC_TMPDIR", text: $temporaryWorkingPath)
+                                        .textFieldStyle(.roundedBorder)
+                                    Button {
+                                        chooseTemporaryFolder()
+                                    } label: {
+                                        Label("Choose", systemImage: "folder")
+                                    }
+                                }
+                            }
+                            Toggle("Compact long run context before AI summaries", isOn: $contextCompactionEnabled)
+                                .toggleStyle(.switch)
+                            Stepper(value: $contextCompactionThresholdTokens, in: 8_000...1_000_000, step: 8_000) {
+                                LabeledContent("Compaction threshold", value: "\(contextCompactionThresholdTokens.formatted()) tokens")
+                            }
+                        }
+                    }
+
+                    GlassPanel {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Tool Permissions")
+                                .font(.headline)
+                            Toggle("Allow tool calling", isOn: $allowToolCalling)
+                                .toggleStyle(.switch)
+                            Toggle("Allow shell tools", isOn: $allowShellTools)
+                                .toggleStyle(.switch)
+                            Toggle("Allow network search", isOn: $allowNetworkSearch)
+                                .toggleStyle(.switch)
+                            Toggle("Allow filesystem writes", isOn: $allowFilesystemWrites)
+                                .toggleStyle(.switch)
+                            Text("These values are injected into approved runs as workspace policy text and environment flags, then synced with the project record.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
@@ -2628,7 +3268,20 @@ private struct ProjectSettingsSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button {
-                    onSave(name, rootPath, bookmarkData, promptExcerptSyncEnabled)
+                    onSave(ProjectSettingsDraft(
+                        name: name,
+                        rootPath: rootPath,
+                        bookmarkData: bookmarkData,
+                        promptExcerptSyncEnabled: promptExcerptSyncEnabled,
+                        defaultWorkingPath: normalizedOptionalPath(defaultWorkingPath),
+                        temporaryWorkingPath: normalizedOptionalPath(temporaryWorkingPath),
+                        allowToolCalling: allowToolCalling,
+                        allowShellTools: allowShellTools,
+                        allowNetworkSearch: allowNetworkSearch,
+                        allowFilesystemWrites: allowFilesystemWrites,
+                        contextCompactionEnabled: contextCompactionEnabled,
+                        contextCompactionThresholdTokens: contextCompactionThresholdTokens
+                    ))
                     dismiss()
                 } label: {
                     Label("Save", systemImage: "checkmark")
@@ -2640,6 +3293,11 @@ private struct ProjectSettingsSheet: View {
         }
         .frame(minWidth: 600, idealWidth: 680, minHeight: 460, idealHeight: 560)
         .background(.regularMaterial)
+    }
+
+    private func normalizedOptionalPath(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func chooseFolder() {
@@ -2659,6 +3317,17 @@ private struct ProjectSettingsSheet: View {
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+    }
+
+    private func chooseTemporaryFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Temporary Folder"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        temporaryWorkingPath = url.path
     }
 }
 
@@ -2718,13 +3387,10 @@ private struct ProjectsView: View {
         .sheet(item: $editingProject) { target in
             ProjectSettingsSheet(
                 project: target.project,
-                onSave: { name, rootPath, bookmarkData, promptSync in
+                onSave: { draft in
                     saveProjectSettings(
                         target.project,
-                        name: name,
-                        rootPath: rootPath,
-                        bookmarkData: bookmarkData,
-                        promptExcerptSyncEnabled: promptSync
+                        draft: draft
                     )
                 },
                 onDelete: {
@@ -2813,17 +3479,22 @@ private struct ProjectsView: View {
 
     private func saveProjectSettings(
         _ project: AgentProject,
-        name: String,
-        rootPath: String?,
-        bookmarkData: Data?,
-        promptExcerptSyncEnabled: Bool
+        draft: ProjectSettingsDraft
     ) {
-        project.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        project.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? project.name
-            : name.trimmingCharacters(in: .whitespacesAndNewlines)
-        project.rootPath = rootPath
-        project.bookmarkData = bookmarkData
-        project.promptExcerptSyncEnabled = promptExcerptSyncEnabled
+            : draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.rootPath = draft.rootPath
+        project.bookmarkData = draft.bookmarkData
+        project.promptExcerptSyncEnabled = draft.promptExcerptSyncEnabled
+        project.defaultWorkingPath = draft.defaultWorkingPath
+        project.temporaryWorkingPath = draft.temporaryWorkingPath
+        project.allowToolCalling = draft.allowToolCalling
+        project.allowShellTools = draft.allowShellTools
+        project.allowNetworkSearch = draft.allowNetworkSearch
+        project.allowFilesystemWrites = draft.allowFilesystemWrites
+        project.contextCompactionEnabled = draft.contextCompactionEnabled
+        project.contextCompactionThresholdTokens = draft.contextCompactionThresholdTokens
         project.updatedAt = Date()
 
         do {

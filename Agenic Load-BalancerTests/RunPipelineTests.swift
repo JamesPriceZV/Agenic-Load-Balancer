@@ -248,6 +248,32 @@ struct RunPipelineTests {
         #expect(usage.completionTokens == 110)
     }
 
+    @Test func codexUsagePayloadCapturesInputOutputCachedAndReasoningTokens() async throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let runner = ScriptedAgentProcessRunner(steps: [
+            .stdout(#"{"type":"turn.completed","usage":{"input_tokens":5227767,"cached_input_tokens":4986496,"output_tokens":17603,"reasoning_output_tokens":6012}}"#),
+            .finished(exitCode: 0),
+        ])
+        let dispatcher = Self.makeDispatcher(runner: runner)
+
+        dispatcher.dispatch(plan: Self.makePlan(), modelContext: context)
+        await dispatcher.awaitTermination()
+
+        #expect(dispatcher.status == .succeeded)
+        #expect(dispatcher.promptTokens == 5_227_767)
+        #expect(dispatcher.completionTokens == 17_603)
+        #expect(dispatcher.cachedPromptTokens == 4_986_496)
+        #expect(dispatcher.reasoningTokens == 6_012)
+
+        let usage = try #require(try context.fetch(FetchDescriptor<UsageLedgerEntry>()).first)
+        #expect(usage.promptTokens == 5_227_767)
+        #expect(usage.completionTokens == 17_603)
+        #expect(usage.cachedPromptTokens == 4_986_496)
+        #expect(usage.reasoningTokens == 6_012)
+        #expect(usage.preprocessingSeconds >= 0)
+    }
+
     @Test func successfulRunCapturesDurationAndOutcomeStatus() async throws {
         let container = try Self.makeContainer()
         let context = ModelContext(container)

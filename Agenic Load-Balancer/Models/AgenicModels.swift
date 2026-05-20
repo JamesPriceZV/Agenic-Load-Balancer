@@ -156,6 +156,14 @@ final class AgentProject {
     var bookmarkData: Data?
     var agentNotesRelativePath: String = "AgentNotes.md"
     var promptExcerptSyncEnabled: Bool = false
+    var defaultWorkingPath: String?
+    var temporaryWorkingPath: String?
+    var allowToolCalling: Bool = true
+    var allowShellTools: Bool = true
+    var allowNetworkSearch: Bool = false
+    var allowFilesystemWrites: Bool = true
+    var contextCompactionEnabled: Bool = true
+    var contextCompactionThresholdTokens: Int = 120_000
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
 
@@ -166,6 +174,14 @@ final class AgentProject {
         bookmarkData: Data? = nil,
         agentNotesRelativePath: String = "AgentNotes.md",
         promptExcerptSyncEnabled: Bool = false,
+        defaultWorkingPath: String? = nil,
+        temporaryWorkingPath: String? = nil,
+        allowToolCalling: Bool = true,
+        allowShellTools: Bool = true,
+        allowNetworkSearch: Bool = false,
+        allowFilesystemWrites: Bool = true,
+        contextCompactionEnabled: Bool = true,
+        contextCompactionThresholdTokens: Int = 120_000,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -175,6 +191,14 @@ final class AgentProject {
         self.bookmarkData = bookmarkData
         self.agentNotesRelativePath = agentNotesRelativePath
         self.promptExcerptSyncEnabled = promptExcerptSyncEnabled
+        self.defaultWorkingPath = defaultWorkingPath
+        self.temporaryWorkingPath = temporaryWorkingPath
+        self.allowToolCalling = allowToolCalling
+        self.allowShellTools = allowShellTools
+        self.allowNetworkSearch = allowNetworkSearch
+        self.allowFilesystemWrites = allowFilesystemWrites
+        self.contextCompactionEnabled = contextCompactionEnabled
+        self.contextCompactionThresholdTokens = contextCompactionThresholdTokens
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -328,9 +352,12 @@ final class UsageLedgerEntry {
     var runID: String?
     var promptTokens: Int = 0
     var completionTokens: Int = 0
+    var cachedPromptTokens: Int = 0
+    var reasoningTokens: Int = 0
     var callCount: Int = 0
     var estimatedCostUSD: Double = 0
     var durationSeconds: Double = 0
+    var preprocessingSeconds: Double = 0
     var sessionSeconds: Double = 0
     var limitWindow: String = "manual"
     var createdAt: Date = Date()
@@ -342,9 +369,12 @@ final class UsageLedgerEntry {
         runID: String? = nil,
         promptTokens: Int = 0,
         completionTokens: Int = 0,
+        cachedPromptTokens: Int = 0,
+        reasoningTokens: Int = 0,
         callCount: Int = 1,
         estimatedCostUSD: Double = 0,
         durationSeconds: Double = 0,
+        preprocessingSeconds: Double = 0,
         sessionSeconds: Double = 0,
         limitWindow: String = "manual",
         createdAt: Date = Date()
@@ -355,9 +385,12 @@ final class UsageLedgerEntry {
         self.runID = runID
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
+        self.cachedPromptTokens = cachedPromptTokens
+        self.reasoningTokens = reasoningTokens
         self.callCount = callCount
         self.estimatedCostUSD = estimatedCostUSD
         self.durationSeconds = durationSeconds
+        self.preprocessingSeconds = preprocessingSeconds
         self.sessionSeconds = sessionSeconds
         self.limitWindow = limitWindow
         self.createdAt = createdAt
