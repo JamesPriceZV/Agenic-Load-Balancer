@@ -9,9 +9,17 @@ Created: May 5, 2026
 - Claim in-progress work and avoid conflicting tasks.
 - Record phases, waves, steps, handoffs, blockers, tests, commits, and push checkpoints.
 - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
-- Canonical working root as of May 19, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Treat `/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer` as stale unless the user explicitly redirects work there.
+- Current explicit working root as of May 20, 2026: `/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer`. The archive at `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` is copy-only source material.
 
 ## Active Work
+- [checkpointed] Phase 7.6 continuation / Persistence, approval-gated execution, and safety audits
+  Assignee: OpenAI Codex
+  Detail: Implemented the remaining Phase 7.6 wiring. `AutonomyPersistence` now persists drafted autonomy goals, plans, tasks, policy snapshots, operation metadata, and audit trail entries into SwiftData. The Autonomy control center saves drafts, shows saved plan IDs, prepares saved tasks as approval-gated `RunPlan`s through the existing approval sheet, updates task audit state after terminal runs, and runs validation commands only from an explicit user action through `ShellValidationGateRunner`, persisting `ValidationGateRecord` status/output. Added executable safety-audit coverage proving unavailable Foundation Models paths use no-op/fallback implementations and command-bar mutating actions return approval-required or blocked results instead of executing.
+  Run: local implementation turn on May 20, 2026
+  Commit: this local checkpoint commit (`Wire autonomy persistence and execution`)
+  Conflict: none
+  Validation: Focused tests passed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" CODE_SIGNING_ALLOWED=NO test -only-testing:"Agenic Load-BalancerTests/AutonomousProjectManagerTests" -only-testing:"Agenic Load-BalancerTests/FoundationModelsSafetyAuditTests"`; result bundle: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_Load-Balancer-bsroquvxykavjeetekktvpnwioze/Logs/Test/Test-Agenic Load-Balancer-2026.05.20_08-18-40--0400.xcresult`. Full scheme passed with the same destination and no `-only-testing` (129 tests); result bundle: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_Load-Balancer-bsroquvxykavjeetekktvpnwioze/Logs/Test/Test-Agenic Load-Balancer-2026.05.20_08-20-37--0400.xcresult`.
+
 - [checkpointed] Validation / UI-test timeout closeout
   Assignee: OpenAI Codex
   Detail: Completed the previously timed-out UI validation path. The focused launch assertion, the full UI target, and the full app scheme now run to completion with the `platform=macOS,arch=arm64` destination. The UI target executed `testExample`, `testLaunchPerformance`, and `testLaunch` in both light and dark UI configurations; the full scheme also exercised all unit suites added through Phases 7.3-7.6, including RoutingTieBreaker, AutonomyPolicy, AutonomousProjectManager, ConflictResolutionEngine, MachineSyncCoordinator, and ValidationGateRunner tests.

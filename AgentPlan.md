@@ -1,6 +1,6 @@
 # Phase 7.3-7.6 Autonomous Command Center Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the next Agenic Load-Balancer arc: a natural-language Foundation Models command bar, intelligent AgentNotes preflight and reconciliation, on-device routing tie-breaks, and a safe autonomous multi-agent project development manager with cross-machine sync.
 
@@ -122,7 +122,7 @@ Expected result after each completed phase: `** TEST SUCCEEDED **`.
 - Inspect: `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer`
 - Modify only after root decision: `AgentNotes.md`, `PLAN.md`, `AgentPlan.md`
 
-- [ ] **Step 1: Run root checks from the requested path**
+- [x] **Step 1: Run root checks from the requested path**
 
 ```bash
 pwd -P
@@ -141,7 +141,7 @@ fatal: not a git repository (or any of the parent directories): .git
 ./Agenic Load-Balancer.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 ```
 
-- [ ] **Step 2: Locate the authorized archive source**
+- [x] **Step 2: Locate the authorized archive source**
 
 ```bash
 find /Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects -maxdepth 3 -name .git -type d -print
@@ -154,7 +154,7 @@ Expected if only the reference checkout exists:
 /Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer/.git
 ```
 
-- [ ] **Step 3: Restore missing files from the authorized archive source when the requested root is skeletal**
+- [x] **Step 3: Restore missing files from the authorized archive source when the requested root is skeletal**
 
 Use this only after confirming the requested root still lacks source files and `PLAN.md`. Preserve the current `AgentPlan.md`.
 
@@ -170,7 +170,7 @@ Expected:
 The target root contains .git, PLAN.md, AgentNotes.md, source folders, tests, and the existing AgentPlan.md.
 ```
 
-- [ ] **Step 4: Choose the execution root**
+- [x] **Step 4: Choose the execution root**
 
 Use one of these outcomes:
 
@@ -180,7 +180,7 @@ Outcome B: The user explicitly redirects work to the OneDrive-OLD archive source
 Outcome C: The archive source is unavailable or incomplete. Stop and ask the user for a new authorized source before copying project files or PLAN.md from anywhere else.
 ```
 
-- [ ] **Step 5: Preserve Phase 7.2 dirty work before starting**
+- [x] **Step 5: Preserve Phase 7.2 dirty work before starting**
 
 ```bash
 git status --short --branch
@@ -200,7 +200,7 @@ Modified Phase 7.2 files are visible and must be committed, stashed with a named
 - Modify: `PLAN.md`
 - Existing dirty files from Phase 7.2
 
-- [ ] **Step 1: Run the macOS test gate**
+- [x] **Step 1: Run the macOS test gate**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
@@ -212,7 +212,7 @@ Expected:
 ** TEST SUCCEEDED **
 ```
 
-- [ ] **Step 2: Record Phase 7.2 validation**
+- [x] **Step 2: Record Phase 7.2 validation**
 
 Add an `AgentNotes.md` checkpoint entry with this content shape:
 
@@ -226,16 +226,16 @@ Add an `AgentNotes.md` checkpoint entry with this content shape:
   Validation: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test` returned ** TEST SUCCEEDED **.
 ```
 
-- [ ] **Step 3: Update `PLAN.md` handoff state**
+- [x] **Step 3: Update `PLAN.md` handoff state**
 
 Replace the Phase 7.2 "next recommended" or pending language with:
 
 ```markdown
 - Phase 7.2 status: validated and checkpointed. Structured `RunSummary` classification is now the baseline for Phase 7.3+ command actions, dashboard metric reads, and routing tie-break context.
-- Next recommended implementation unit: Phase 7.3, natural-language tool-calling command bar.
+- Next recommended implementation unit: completed; Phase 7.3-7.6 now have implementation, persistence/execution wiring, safety-audit tests, and full repo-visible checkpoint notes.
 ```
 
-- [ ] **Step 4: Commit Phase 7.2 separately**
+- [x] **Step 4: Commit Phase 7.2 separately**
 
 ```bash
 git add 'Agenic Load-Balancer/Services/RunSummary.swift' 'Agenic Load-BalancerTests/RunSummaryTests.swift' 'Agenic Load-Balancer/Models/AgenicModels.swift' 'Agenic Load-Balancer/Services/RunDispatcher.swift' 'Agenic Load-Balancer/Services/SnapshotArchive.swift' 'Agenic Load-Balancer/ContentView.swift' AgentNotes.md PLAN.md
@@ -256,7 +256,7 @@ Expected:
 - Create: `Agenic Load-Balancer/Services/CommandBarActions.swift`
 - Test: `Agenic Load-BalancerTests/CommandBarActionTests.swift`
 
-- [ ] **Step 1: Create the request and result types**
+- [x] **Step 1: Create the request and result types**
 
 Add:
 
@@ -307,7 +307,7 @@ struct CommandBarActionResult: Sendable, Codable, Hashable {
 }
 ```
 
-- [ ] **Step 2: Add tests for approval semantics**
+- [x] **Step 2: Add tests for approval semantics**
 
 ```swift
 import Testing
@@ -342,7 +342,7 @@ struct CommandBarActionTests {
 }
 ```
 
-- [ ] **Step 3: Run the focused tests**
+- [x] **Step 3: Run the focused tests**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test -only-testing:Agenic_Load_BalancerTests/CommandBarActionTests
@@ -360,7 +360,7 @@ Expected:
 - Modify: `Agenic Load-Balancer/Services/CommandBarActions.swift`
 - Test: `Agenic Load-BalancerTests/CommandBarActionTests.swift`
 
-- [ ] **Step 1: Add executor input snapshots**
+- [x] **Step 1: Add executor input snapshots**
 
 Add:
 
@@ -400,7 +400,7 @@ struct CommandBarContext: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add read-only action methods**
+- [x] **Step 2: Add read-only action methods**
 
 Add:
 
@@ -454,7 +454,7 @@ actor CommandBarActionExecutor {
 }
 ```
 
-- [ ] **Step 3: Add mutating action drafts**
+- [x] **Step 3: Add mutating action drafts**
 
 Add methods whose first implementation returns proposals instead of writing:
 
@@ -521,7 +521,7 @@ extension CommandBarActionExecutor {
 }
 ```
 
-- [ ] **Step 4: Add tests for draft gating**
+- [x] **Step 4: Add tests for draft gating**
 
 ```swift
 @Test func snapshotDraftRequiresUserApproval() async {
@@ -540,7 +540,7 @@ extension CommandBarActionExecutor {
 - Create: `Agenic Load-Balancer/Services/CommandBarTools.swift`
 - Test: `Agenic Load-BalancerTests/CommandBarToolTests.swift`
 
-- [ ] **Step 1: Add framework-gated tools**
+- [x] **Step 1: Add framework-gated tools**
 
 ```swift
 import Foundation
@@ -597,7 +597,7 @@ enum CommandBarToolFormatter {
 }
 ```
 
-- [ ] **Step 2: Add mutating tools as draft-only tools**
+- [x] **Step 2: Add mutating tools as draft-only tools**
 
 ```swift
 #if canImport(FoundationModels)
@@ -643,7 +643,7 @@ struct CreateSnapshotTool: Tool {
 #endif
 ```
 
-- [ ] **Step 3: Add tool availability tests using formatter and draft behavior**
+- [x] **Step 3: Add tool availability tests using formatter and draft behavior**
 
 ```swift
 @Suite("Phase 7.3 command tools")
@@ -685,7 +685,7 @@ struct CommandBarToolTests {
 - Create: `Agenic Load-Balancer/Services/NaturalLanguageCommandBar.swift`
 - Test: extend `Agenic Load-BalancerTests/CommandBarToolTests.swift`
 
-- [ ] **Step 1: Add model states and fallback**
+- [x] **Step 1: Add model states and fallback**
 
 ```swift
 import Foundation
@@ -748,7 +748,7 @@ final class NaturalLanguageCommandBarModel {
 }
 ```
 
-- [ ] **Step 2: Add the gated session method**
+- [x] **Step 2: Add the gated session method**
 
 ```swift
 extension NaturalLanguageCommandBarModel {
@@ -788,7 +788,7 @@ extension NaturalLanguageCommandBarModel {
 }
 ```
 
-- [ ] **Step 3: Test unavailable state**
+- [x] **Step 3: Test unavailable state**
 
 ```swift
 @MainActor
@@ -813,7 +813,7 @@ extension NaturalLanguageCommandBarModel {
 - Create: `Agenic Load-Balancer/Views/CommandBarView.swift`
 - Modify: `Agenic Load-Balancer/ContentView.swift`
 
-- [ ] **Step 1: Create the command bar view**
+- [x] **Step 1: Create the command bar view**
 
 ```swift
 import SwiftUI
@@ -869,7 +869,7 @@ struct CommandBarView: View {
 }
 ```
 
-- [ ] **Step 2: Wire it into `ContentView.swift`**
+- [x] **Step 2: Wire it into `ContentView.swift`**
 
 Add a sheet state near the root `ContentView` state:
 
@@ -917,7 +917,7 @@ Add the sheet:
 
 If `ContentView` does not have `selectedProject`, `usageLedgers`, or `outcomes` in scope with these exact names, use the existing `@Query` names from the dashboard and prompt router. Do not add duplicate queries when the data is already loaded at the root view.
 
-- [ ] **Step 3: Run full tests**
+- [x] **Step 3: Run full tests**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
@@ -937,7 +937,7 @@ Expected:
 - Create: `Agenic Load-Balancer/Services/AgentNotesIntelligence.swift`
 - Test: `Agenic Load-BalancerTests/AgentNotesIntelligenceTests.swift`
 
-- [ ] **Step 1: Add plain value types**
+- [x] **Step 1: Add plain value types**
 
 ```swift
 import Foundation
@@ -975,7 +975,7 @@ protocol AgentNotesIntelligencing: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add noop and scripted implementations**
+- [x] **Step 2: Add noop and scripted implementations**
 
 ```swift
 struct NoopAgentNotesIntelligence: AgentNotesIntelligencing {
@@ -1008,7 +1008,7 @@ struct ScriptedAgentNotesIntelligence: AgentNotesIntelligencing {
 }
 ```
 
-- [ ] **Step 3: Add tests for fallback behavior**
+- [x] **Step 3: Add tests for fallback behavior**
 
 ```swift
 @Suite("Phase 7.4 AgentNotes intelligence")
@@ -1053,7 +1053,7 @@ struct AgentNotesIntelligenceTests {
 **Files:**
 - Modify: `Agenic Load-Balancer/Services/AgentNotesIntelligence.swift`
 
-- [ ] **Step 1: Add `@Generable` output shapes**
+- [x] **Step 1: Add `@Generable` output shapes**
 
 ```swift
 #if canImport(FoundationModels)
@@ -1096,7 +1096,7 @@ struct GeneratedAgentNotesMergeProposal: Sendable {
 #endif
 ```
 
-- [ ] **Step 2: Add the live implementation**
+- [x] **Step 2: Add the live implementation**
 
 ```swift
 #if canImport(FoundationModels)
@@ -1164,7 +1164,7 @@ struct LiveFoundationModelsAgentNotesIntelligence: AgentNotesIntelligencing {
 #endif
 ```
 
-- [ ] **Step 3: Add factory**
+- [x] **Step 3: Add factory**
 
 ```swift
 enum AgentNotesIntelligenceFactory {
@@ -1194,7 +1194,7 @@ enum AgentNotesIntelligenceFactory {
 - Modify: `Agenic Load-Balancer/Services/RunDispatcher.swift`
 - Test: extend `Agenic Load-BalancerTests/CoordinationCheckpointTests.swift`
 
-- [ ] **Step 1: Add full AgentNotes read**
+- [x] **Step 1: Add full AgentNotes read**
 
 In `ProjectCoordinationActor`, add:
 
@@ -1206,7 +1206,7 @@ func readAgentNotes(rootPath: String) -> String? {
 }
 ```
 
-- [ ] **Step 2: Extend `RunDispatcher.dispatch`**
+- [x] **Step 2: Extend `RunDispatcher.dispatch`**
 
 Change the signature:
 
@@ -1228,7 +1228,7 @@ let promptForCommand = Self.composeCommandPrompt(
 )
 ```
 
-- [ ] **Step 3: Add preflight summary test**
+- [x] **Step 3: Add preflight summary test**
 
 ```swift
 @Test func composeCommandPromptPrefersIntelligentSummaryText() {
@@ -1249,7 +1249,7 @@ let promptForCommand = Self.composeCommandPrompt(
 - Create: `Agenic Load-Balancer/Views/AgentNotesReconciliationView.swift` or modify existing AgentNotes section in `ContentView.swift`
 - Test: UI smoke through existing UI tests if the project already has launch tests
 
-- [ ] **Step 1: Add merge proposal panel**
+- [x] **Step 1: Add merge proposal panel**
 
 ```swift
 struct AgentNotesMergeProposalView: View {
@@ -1286,7 +1286,7 @@ struct AgentNotesMergeProposalView: View {
 }
 ```
 
-- [ ] **Step 2: Keep final write gated**
+- [x] **Step 2: Keep final write gated**
 
 The `Apply Merge` action must call `ProjectCoordinationActor.applyReconciliation(rootPath:suggestedContent:)` only after a `confirmationDialog` that includes:
 
@@ -1294,7 +1294,7 @@ The `Apply Merge` action must call `ProjectCoordinationActor.applyReconciliation
 This replaces AgentNotes.md with the reviewed merge proposal. A snapshot or Git checkpoint should exist before applying this to important project roots.
 ```
 
-- [ ] **Step 3: Run full tests**
+- [x] **Step 3: Run full tests**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
@@ -1314,7 +1314,7 @@ Expected:
 - Create: `Agenic Load-Balancer/Services/RoutingTieBreaker.swift`
 - Test: `Agenic Load-BalancerTests/RoutingTieBreakerTests.swift`
 
-- [ ] **Step 1: Add value types**
+- [x] **Step 1: Add value types**
 
 ```swift
 import Foundation
@@ -1340,7 +1340,7 @@ protocol RoutingTieBreaking: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add noop and scripted implementations**
+- [x] **Step 2: Add noop and scripted implementations**
 
 ```swift
 struct NoopRoutingTieBreaker: RoutingTieBreaking {
@@ -1368,7 +1368,7 @@ struct ScriptedRoutingTieBreaker: RoutingTieBreaking {
 }
 ```
 
-- [ ] **Step 3: Add tests**
+- [x] **Step 3: Add tests**
 
 ```swift
 @Suite("Phase 7.5 routing tie breaker")
@@ -1412,7 +1412,7 @@ struct RoutingTieBreakerTests {
 **Files:**
 - Modify: `Agenic Load-Balancer/Services/RoutingTieBreaker.swift`
 
-- [ ] **Step 1: Add generated shape**
+- [x] **Step 1: Add generated shape**
 
 ```swift
 #if canImport(FoundationModels)
@@ -1436,7 +1436,7 @@ struct GeneratedRoutingTieBreak: Sendable {
 #endif
 ```
 
-- [ ] **Step 2: Add live implementation**
+- [x] **Step 2: Add live implementation**
 
 ```swift
 #if canImport(FoundationModels)
@@ -1473,7 +1473,7 @@ struct LiveFoundationModelsRoutingTieBreaker: RoutingTieBreaking {
 #endif
 ```
 
-- [ ] **Step 3: Add factory**
+- [x] **Step 3: Add factory**
 
 ```swift
 enum RoutingTieBreakerFactory {
@@ -1503,7 +1503,7 @@ enum RoutingTieBreakerFactory {
 - Modify: `Agenic Load-Balancer/ContentView.swift`
 - Test: extend `Agenic Load-BalancerTests/RoutingTieBreakerTests.swift`
 
-- [ ] **Step 1: Add recommendation wrapper**
+- [x] **Step 1: Add recommendation wrapper**
 
 ```swift
 struct RoutingRecommendation: Sendable, Hashable {
@@ -1517,7 +1517,7 @@ struct RoutingRecommendation: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 2: Add close-score detector**
+- [x] **Step 2: Add close-score detector**
 
 ```swift
 extension RoutingEngine {
@@ -1532,7 +1532,7 @@ extension RoutingEngine {
 }
 ```
 
-- [ ] **Step 3: Add coordinator method without changing deterministic `rank`**
+- [x] **Step 3: Add coordinator method without changing deterministic `rank`**
 
 Create a small coordinator in `RoutingTieBreaker.swift`:
 
@@ -1583,7 +1583,7 @@ actor RoutingRecommendationCoordinator {
 }
 ```
 
-- [ ] **Step 4: UI display rule**
+- [x] **Step 4: UI display rule**
 
 In route score UI, add:
 
@@ -1596,7 +1596,7 @@ if let tieBreak = recommendation.tieBreak, score.providerID == tieBreak.selected
 
 Keep all original score bars visible so users can see the model did not replace deterministic scoring.
 
-- [ ] **Step 5: Run full tests**
+- [x] **Step 5: Run full tests**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
@@ -1616,7 +1616,7 @@ Expected:
 - Create: `Agenic Load-Balancer/Services/AutonomyPolicy.swift`
 - Test: `Agenic Load-BalancerTests/AutonomyPolicyTests.swift`
 
-- [ ] **Step 1: Add policy values**
+- [x] **Step 1: Add policy values**
 
 ```swift
 import Foundation
@@ -1660,7 +1660,7 @@ enum AutonomyPolicyDecision: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 2: Add evaluator**
+- [x] **Step 2: Add evaluator**
 
 ```swift
 struct AutonomyPolicyEvaluator: Sendable {
@@ -1689,7 +1689,7 @@ struct AutonomyPolicyEvaluator: Sendable {
 }
 ```
 
-- [ ] **Step 3: Add tests**
+- [x] **Step 3: Add tests**
 
 ```swift
 @Suite("Phase 7.6 autonomy policy")
@@ -1719,7 +1719,7 @@ struct AutonomyPolicyTests {
 - Modify: `Agenic Load-Balancer/Models/AgenicModels.swift`
 - Test: `Agenic Load-BalancerTests/AutonomyPolicyTests.swift`
 
-- [ ] **Step 1: Add model registrations**
+- [x] **Step 1: Add model registrations**
 
 Append these to `AgenicDataModel.models`:
 
@@ -1735,7 +1735,7 @@ ValidationGateRecord.self,
 AuditTrailRecord.self,
 ```
 
-- [ ] **Step 2: Add records with optional relationships and scalar fields**
+- [x] **Step 2: Add records with optional relationships and scalar fields**
 
 ```swift
 @Model
@@ -1794,7 +1794,7 @@ Add the same CloudKit-compatible shape for:
 
 When writing the actual code, use full initializers like the existing model style, not compact memberwise sketches. Keep arrays encoded as JSON strings unless the app already has a CloudKit-safe transform pattern for arrays.
 
-- [ ] **Step 3: Add schema registration test**
+- [x] **Step 3: Add schema registration test**
 
 ```swift
 @Test func autonomyModelsAreRegisteredInSchema() {
@@ -1811,7 +1811,7 @@ When writing the actual code, use full initializers like the existing model styl
 - Create: `Agenic Load-Balancer/Services/ConflictResolutionEngine.swift`
 - Test: `Agenic Load-BalancerTests/ConflictResolutionEngineTests.swift`
 
-- [ ] **Step 1: Add deterministic merge values**
+- [x] **Step 1: Add deterministic merge values**
 
 ```swift
 import Foundation
@@ -1852,7 +1852,7 @@ struct ConflictResolutionEngine: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add tests**
+- [x] **Step 2: Add tests**
 
 ```swift
 @Suite("Phase 7.6 conflict resolution")
@@ -1881,7 +1881,7 @@ struct ConflictResolutionEngineTests {
 - Create: `Agenic Load-Balancer/Services/AutonomousProjectManager.swift`
 - Test: `Agenic Load-BalancerTests/AutonomousProjectManagerTests.swift`
 
-- [ ] **Step 1: Add goal-to-plan values**
+- [x] **Step 1: Add goal-to-plan values**
 
 ```swift
 import Foundation
@@ -1909,7 +1909,7 @@ struct AutonomousPlanDraft: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 2: Add planner protocol and deterministic starter planner**
+- [x] **Step 2: Add planner protocol and deterministic starter planner**
 
 ```swift
 protocol GoalPlanning: Sendable {
@@ -1948,7 +1948,7 @@ struct DeterministicGoalPlanner: GoalPlanning {
 }
 ```
 
-- [ ] **Step 3: Add manager actor**
+- [x] **Step 3: Add manager actor**
 
 ```swift
 actor AutonomousProjectManager {
@@ -1977,7 +1977,7 @@ actor AutonomousProjectManager {
 }
 ```
 
-- [ ] **Step 4: Add tests**
+- [x] **Step 4: Add tests**
 
 ```swift
 @Suite("Phase 7.6 autonomous project manager")
@@ -2015,7 +2015,7 @@ struct AutonomousProjectManagerTests {
 - Create: `Agenic Load-Balancer/Services/ValidationGateRunner.swift`
 - Test: `Agenic Load-BalancerTests/ValidationGateRunnerTests.swift`
 
-- [ ] **Step 1: Add runner protocol**
+- [x] **Step 1: Add runner protocol**
 
 ```swift
 import Foundation
@@ -2043,7 +2043,7 @@ struct ScriptedValidationGateRunner: ValidationGateRunning {
 }
 ```
 
-- [ ] **Step 2: Add tests**
+- [x] **Step 2: Add tests**
 
 ```swift
 @Suite("Phase 7.6 validation gates")
@@ -2069,7 +2069,7 @@ Add a real process-backed runner only after the policy and UI approval surfaces 
 - Create: `Agenic Load-Balancer/Services/MachineSyncCoordinator.swift`
 - Test: `Agenic Load-BalancerTests/MachineSyncCoordinatorTests.swift`
 
-- [ ] **Step 1: Add sync health values**
+- [x] **Step 1: Add sync health values**
 
 ```swift
 import Foundation
@@ -2100,7 +2100,7 @@ struct MachineSyncCoordinator: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add tests**
+- [x] **Step 2: Add tests**
 
 ```swift
 @Suite("Phase 7.6 machine sync")
@@ -2124,7 +2124,7 @@ struct MachineSyncCoordinatorTests {
 - Create: `Agenic Load-Balancer/Views/AutonomyControlCenterView.swift`
 - Modify: `Agenic Load-Balancer/ContentView.swift`
 
-- [ ] **Step 1: Add UI view**
+- [x] **Step 1: Add UI view**
 
 ```swift
 import SwiftUI
@@ -2186,7 +2186,7 @@ struct AutonomyControlCenterView: View {
 }
 ```
 
-- [ ] **Step 2: Wire as a sidebar section**
+- [x] **Step 2: Wire as a sidebar section**
 
 Add a `ConsoleSection.autonomy` case, sidebar item with `cpu`, and switch branch:
 
@@ -2212,7 +2212,7 @@ Use the existing selected project state names in `ContentView.swift`; do not dup
 - Modify: `AgentNotes.md`
 - Modify: `PLAN.md`
 
-- [ ] **Step 1: Run formatting/whitespace check**
+- [x] **Step 1: Run formatting/whitespace check**
 
 ```bash
 git diff --check
@@ -2224,7 +2224,7 @@ Expected:
 no output
 ```
 
-- [ ] **Step 2: Run full macOS test suite**
+- [x] **Step 2: Run full macOS test suite**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
@@ -2236,7 +2236,7 @@ Expected:
 ** TEST SUCCEEDED **
 ```
 
-- [ ] **Step 3: Record durable handoff**
+- [x] **Step 3: Record durable handoff**
 
 Add an `AgentNotes.md` entry:
 
@@ -2254,10 +2254,10 @@ Update `PLAN.md` current handoff:
 
 ```markdown
 - Current Phase 7 execution plan lives in `AgentPlan.md`.
-- Next implementation pickup: Phase 7.3 Task 1, after confirming the canonical checkout and checkpointing Phase 7.2.
+- Next implementation pickup: no Phase 7.3-7.6 implementation task remains from this plan; future work should start from a fresh scoped plan.
 ```
 
-- [ ] **Step 4: Commit plan and implementation**
+- [x] **Step 4: Commit plan and implementation**
 
 Use phase-sized commits:
 
@@ -2287,7 +2287,7 @@ git commit -m "Add autonomous project manager foundation"
 - [x] Phase 7.3 covers ranking agents, dispatch run drafts, provider probes, snapshots, AgentNotes reconciliation, and dashboard metric reads. Checkpointed in `30d3d9f`; focused command-bar tests, the full app unit-test bundle, the UI target, and the full macOS scheme passed on May 20, 2026.
 - [x] Phase 7.4 replaces raw byte-truncated preflight with relevance-focused summary and adds AI-assisted merge proposals without ungated writes. Checkpointed in `9df9c6c`; focused AgentNotes intelligence tests passed, `build-for-testing` succeeded, and the later full macOS scheme passed on May 20, 2026.
 - [x] Phase 7.5 keeps deterministic routing canonical and applies on-device tie-breaks only to close scores. Checkpointed in `1b8a55d`; `build-for-testing` succeeded and the later full-suite run completed the Phase 7.5 test coverage on May 20, 2026.
-- [x] Phase 7.6 defines autonomy as policy-governed goal planning, task dispatch, validation, checkpointing, cross-machine sync, and lossless conflict handling. Checkpointed in `ef5b69b`; foundation models, services, UI entry point, focused tests, UI tests, and the full macOS scheme passed on May 20, 2026.
-- [ ] Every Foundation Models call has availability gating and a fallback.
-- [ ] Every mutating tool action requires explicit approval unless a future trusted policy explicitly permits it.
+- [x] Phase 7.6 defines autonomy as policy-governed goal planning, task dispatch, validation, checkpointing, cross-machine sync, and lossless conflict handling. Checkpointed in `ef5b69b` with the May 20 persistence/execution continuation pending this commit; foundation models, services, UI entry point, focused tests, UI tests, and the full macOS scheme passed on May 20, 2026.
+- [x] Every Foundation Models call has availability gating and a fallback.
+- [x] Every mutating tool action requires explicit approval unless a future trusted policy explicitly permits it.
 - [x] Validation includes focused tests per phase plus full macOS `xcodebuild test`.

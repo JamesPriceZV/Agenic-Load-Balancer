@@ -116,6 +116,10 @@ struct ContentView: View {
         case .autonomy:
             AutonomyControlCenterView(
                 projects: projects,
+                providers: providers,
+                usageEntries: usageEntries,
+                outcomes: outcomes,
+                coordinationEvents: coordinationEvents,
                 draftPlan: { request in
                     try await AppServices.autonomyManager.draftPlan(request: request)
                 }
@@ -554,7 +558,7 @@ private struct PromptRouterView: View {
     }
 }
 
-private struct ApprovalSheetView: View {
+struct ApprovalSheetView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 

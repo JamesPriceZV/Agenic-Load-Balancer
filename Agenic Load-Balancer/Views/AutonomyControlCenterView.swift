@@ -6,22 +6,61 @@
 //
 
 import Foundation
+import SwiftData
 import SwiftUI
 
 struct AutonomyControlCenterView: View {
+    @Environment(\.modelContext) private var modelContext
+
     let projects: [AgentProject]
+    let providers: [AgentProviderProfile]
+    let usageEntries: [UsageLedgerEntry]
+    let outcomes: [RunOutcomeRecord]
+    let coordinationEvents: [CoordinationEventRecord]
     let draftPlan: @Sendable (AutonomousGoalRequest) async throws -> AutonomousPlanDraft
+    let validationRunner: any ValidationGateRunning
 
     @State private var selectedProjectID: String?
     @State private var goalTitle = ""
     @State private var goalDescription = ""
     @State private var level: AutonomyLevel = .proposeActions
     @State private var draft: AutonomousPlanDraft?
+    @State private var persistedPlan: PersistedAutonomousPlan?
     @State private var statusText = ""
     @State private var isDrafting = false
+    @State private var runningValidationTaskID: String?
+    @State private var activeRun: ActiveAutonomyRun?
+    @State private var dispatcher = RunDispatcher()
+
+    init(
+        projects: [AgentProject],
+        providers: [AgentProviderProfile],
+        usageEntries: [UsageLedgerEntry],
+        outcomes: [RunOutcomeRecord],
+        coordinationEvents: [CoordinationEventRecord],
+        draftPlan: @escaping @Sendable (AutonomousGoalRequest) async throws -> AutonomousPlanDraft,
+        validationRunner: any ValidationGateRunning = ShellValidationGateRunner()
+    ) {
+        self.projects = projects
+        self.providers = providers
+        self.usageEntries = usageEntries
+        self.outcomes = outcomes
+        self.coordinationEvents = coordinationEvents
+        self.draftPlan = draftPlan
+        self.validationRunner = validationRunner
+    }
 
     private var selectedProject: AgentProject? {
         selectedProjectID.flatMap { id in projects.first { $0.identifier == id } } ?? projects.first
+    }
+
+    private var currentPolicy: AutonomyPolicy {
+        var policy = AutonomyPolicy.defaultSafe
+        policy.level = level
+        if let rootPath = selectedProject?.rootPath {
+            policy.allowedRootPaths = [rootPath]
+        }
+        return policy
     }
 
     var body: some View {
@@ -35,6 +74,17 @@ struct AutonomyControlCenterView: View {
                 syncPanel
             }
             .padding(24)
+        }
+        .sheet(item: $activeRun) { active in
+            ApprovalSheetView(
+                plan: active.plan,
+                dispatcher: dispatcher,
+                onClose: {
+                    let taskID = active.taskID
+                    activeRun = nil
+                    finalizeRunTask(taskID)
+                }
+            )
         }
     }
 
@@ -84,7 +134,7 @@ struct AutonomyControlCenterView: View {
             Button {
                 Task { await createDraft() }
             } label: {
-                Label(isDrafting ? "Drafting" : "Draft Plan", systemImage: "list.bullet.clipboard")
+                Label(isDrafting ? "Drafting" : "Draft & Save Plan", systemImage: "list.bullet.clipboard")
             }
             .disabled(isDrafting || goalTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .buttonStyle(.borderedProminent)
@@ -98,6 +148,12 @@ struct AutonomyControlCenterView: View {
             Text(draft.summary)
                 .font(.headline)
                 .textSelection(.enabled)
+            if let persistedPlan {
+                Label("Saved plan \(persistedPlan.planID.prefix(8)) · \(persistedPlan.taskIDsByTitle.count) task(s)", systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
 
             ForEach(draft.tasks) { task in
                 taskRow(task)
@@ -137,9 +193,43 @@ struct AutonomyControlCenterView: View {
             Label(decision.message, systemImage: decisionIcon(decision))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(decisionColor(decision))
+            taskActions(task: task, decision: decision)
         }
         .padding(12)
         .background(.background.opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func taskActions(task: AutonomousTaskDraft, decision: AutonomyPolicyDecision) -> some View {
+        if let taskID = persistedPlan?.taskIDsByTitle[task.title] {
+            HStack(spacing: 8) {
+                Button {
+                    Task { await prepareRun(for: task, taskID: taskID) }
+                } label: {
+                    Label("Review Run", systemImage: "checkmark.seal")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isDenied(decision) || providers.isEmpty || activeRun != nil)
+
+                if let command = task.validationCommand {
+                    Button {
+                        Task { await runValidation(taskID: taskID, command: command) }
+                    } label: {
+                        Label(
+                            runningValidationTaskID == taskID ? "Running Validation" : "Run Validation",
+                            systemImage: "terminal"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isDenied(decision) || runningValidationTaskID != nil)
+                }
+            }
+            .font(.caption)
+        } else {
+            Label("Save the draft before dispatching or validating tasks.", systemImage: "tray.and.arrow.down")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var syncPanel: some View {
@@ -167,40 +257,166 @@ struct AutonomyControlCenterView: View {
         statusText = ""
         defer { isDrafting = false }
 
-        var policy = AutonomyPolicy.defaultSafe
-        policy.level = level
-        if let rootPath = selectedProject?.rootPath {
-            policy.allowedRootPaths = [rootPath]
-        }
-
         let request = AutonomousGoalRequest(
             title: goalTitle,
             goalDescription: goalDescription,
             projectID: selectedProject?.identifier,
             projectRootPath: selectedProject?.rootPath,
-            autonomyPolicy: policy
+            autonomyPolicy: currentPolicy
         )
 
         do {
-            draft = try await draftPlan(request)
-            statusText = "Draft ready."
+            let nextDraft = try await draftPlan(request)
+            let persisted = try AutonomyPersistence.persistDraftPlan(
+                request: request,
+                draft: nextDraft,
+                modelContext: modelContext
+            )
+            draft = nextDraft
+            persistedPlan = persisted
+            await AppServices.cloudSync.recordLocalSave()
+            statusText = "Draft saved to SwiftData as plan \(persisted.planID.prefix(8))."
         } catch {
             draft = nil
+            persistedPlan = nil
             statusText = error.localizedDescription
         }
     }
 
     private func evaluate(_ task: AutonomousTaskDraft) -> AutonomyPolicyDecision {
-        var policy = AutonomyPolicy.defaultSafe
-        policy.level = level
-        if let rootPath = selectedProject?.rootPath {
-            policy.allowedRootPaths = [rootPath]
-        }
         return AutonomyPolicyEvaluator().evaluateRun(
             mode: task.mode,
             estimatedCostUSD: 0.01,
-            policy: policy
+            policy: currentPolicy
         )
+    }
+
+    @MainActor
+    private func prepareRun(for task: AutonomousTaskDraft, taskID: String) async {
+        statusText = "Ranking providers for \(task.title)…"
+        let prompt = autonomyPrompt(for: task)
+        let usage = UsageSnapshotBuilder.build(
+            from: usageEntries,
+            outcomes: outcomes,
+            providers: providers
+        )
+        let accuracy = AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+        let recommendation = await AppServices.routingRecommendation.recommend(
+            prompt: prompt,
+            mode: task.mode,
+            providers: providers.map { $0.snapshot() },
+            usage: usage,
+            accuracy: accuracy,
+            coordinationEvents: coordinationEvents.map { $0.snapshot() }
+        )
+        guard let score = recommendation.selected,
+              let provider = providers.first(where: { $0.identifier == score.providerID }) else {
+            statusText = "No provider is available for \(task.mode.label)."
+            return
+        }
+
+        do {
+            try AutonomyPersistence.markTaskDispatchPrepared(
+                taskID: taskID,
+                providerID: provider.identifier,
+                modelContext: modelContext
+            )
+            await AppServices.cloudSync.recordLocalSave()
+        } catch {
+            statusText = error.localizedDescription
+            return
+        }
+
+        dispatcher.reset()
+        activeRun = ActiveAutonomyRun(
+            taskID: taskID,
+            taskTitle: task.title,
+            plan: RunPlan(
+                providerSnapshot: provider.snapshot(),
+                providerID: provider.identifier,
+                providerName: provider.displayName,
+                prompt: prompt,
+                projectID: selectedProject?.identifier,
+                projectName: selectedProject?.name,
+                projectRootPath: selectedProject?.rootPath,
+                mode: task.mode,
+                score: score,
+                promptExcerptSyncEnabled: selectedProject?.promptExcerptSyncEnabled ?? false
+            )
+        )
+        statusText = "Run prepared for \(provider.displayName). Review and approve before it starts."
+    }
+
+    @MainActor
+    private func runValidation(taskID: String, command: String) async {
+        runningValidationTaskID = taskID
+        statusText = "Running validation gate…"
+        defer { runningValidationTaskID = nil }
+
+        do {
+            let result = try await AutonomyPersistence.runValidationGate(
+                taskID: taskID,
+                command: command,
+                workingDirectory: selectedProject?.rootPath,
+                policy: currentPolicy,
+                runner: validationRunner,
+                modelContext: modelContext
+            )
+            await AppServices.cloudSync.recordLocalSave()
+            statusText = result.passed ? "Validation passed." : "Validation failed with exit \(result.exitCode)."
+        } catch {
+            statusText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func finalizeRunTask(_ taskID: String) {
+        let status: CoordinationStatus?
+        let detail: String
+        switch dispatcher.status {
+        case .succeeded:
+            status = .completed
+            detail = "Approval-gated run succeeded."
+        case .failed:
+            status = .conflict
+            detail = "Approval-gated run failed: \(dispatcher.lastError ?? "see run console")."
+        case .cancelled:
+            status = .blocked
+            detail = "Approval-gated run was cancelled."
+        case .idle, .preparing, .running:
+            status = nil
+            detail = ""
+        }
+        guard let status else { return }
+        do {
+            try AutonomyPersistence.updateTaskStatus(
+                taskID: taskID,
+                status: status,
+                detail: detail,
+                modelContext: modelContext
+            )
+            statusText = detail
+        } catch {
+            statusText = error.localizedDescription
+        }
+    }
+
+    private func autonomyPrompt(for task: AutonomousTaskDraft) -> String {
+        """
+        Goal: \(goalTitle)
+
+        \(goalDescription)
+
+        Autonomy task:
+        \(task.title)
+
+        \(task.detail)
+        """
+    }
+
+    private func isDenied(_ decision: AutonomyPolicyDecision) -> Bool {
+        if case .denied = decision { return true }
+        return false
     }
 
     private func icon(for mode: AgentExecutionMode) -> String {
@@ -230,4 +446,12 @@ struct AutonomyControlCenterView: View {
         case .denied: .red
         }
     }
+}
+
+private struct ActiveAutonomyRun: Identifiable {
+    let taskID: String
+    let taskTitle: String
+    let plan: RunPlan
+
+    var id: String { taskID }
 }
