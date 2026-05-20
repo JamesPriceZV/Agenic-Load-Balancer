@@ -113,6 +113,9 @@ final class RunDispatcher {
     private(set) var completionTokens: Int = 0
     private(set) var checkpointStatus: CheckpointStatus = .notRequested
     private(set) var preflightExcerpt: String?
+    /// Phase 7.2: structured result from the on-device outcome classifier.
+    /// Nil until a successful run has been classified.
+    private(set) var classificationResult: RunClassificationResult?
 
     // MARK: Internal collaborators (excluded from observation tracking)
     @ObservationIgnored private let runner: AgentRunning
@@ -120,6 +123,7 @@ final class RunDispatcher {
     @ObservationIgnored private let coordinationActor: ProjectCoordinationActor
     @ObservationIgnored private let cloudSync: CloudSyncCoordinator
     @ObservationIgnored private let gitCheckpoint: GitCheckpointing
+    @ObservationIgnored private let outcomeClassifier: any OutcomeClassifying
     @ObservationIgnored private let now: @Sendable () -> Date
 
     @ObservationIgnored private var streamTask: Task<Void, Never>?
@@ -137,6 +141,7 @@ final class RunDispatcher {
         coordinationActor: ProjectCoordinationActor = AppServices.coordination,
         cloudSync: CloudSyncCoordinator = AppServices.cloudSync,
         gitCheckpoint: GitCheckpointing = AppServices.gitCheckpoint,
+        outcomeClassifier: any OutcomeClassifying = AppServices.outcomeClassifier,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
@@ -144,6 +149,7 @@ final class RunDispatcher {
         self.coordinationActor = coordinationActor
         self.cloudSync = cloudSync
         self.gitCheckpoint = gitCheckpoint
+        self.outcomeClassifier = outcomeClassifier
         self.now = now
     }
 
@@ -166,6 +172,7 @@ final class RunDispatcher {
         completionTokens = 0
         checkpointStatus = .notRequested
         preflightExcerpt = nil
+        classificationResult = nil
         activeOutcome = nil
         activeUsage = nil
         activeCoordination = nil
@@ -262,12 +269,50 @@ final class RunDispatcher {
                 self.finalize(plan: plan, modelContext: modelContext, terminal: terminal, code: nil, errorMessage: terminal == .cancelled ? nil : message)
             }
 
+            // Post-run: Phase 7.2 outcome classification (before checkpoint so
+            // the SHA can be included in future coordination notes if needed).
+            if self.status == .succeeded {
+                await self.classifyOutcome(plan: plan, modelContext: modelContext)
+            }
+
             // Post-run: git checkpoint when the user explicitly approved a
             // commit/push mode and the run actually succeeded.
             if self.status == .succeeded && plan.mode == .commitPushCheckpoint {
                 await self.performGitCheckpoint(plan: plan, modelContext: modelContext)
             }
         }
+    }
+
+    /// Phase 7.2: classify the stdout/stderr of a successful run with the
+    /// on-device Foundation Models classifier and stamp the result onto the
+    /// active `RunOutcomeRecord`. Falls back silently when FM is unavailable.
+    private func classifyOutcome(plan: RunPlan, modelContext: ModelContext) async {
+        appendSystem("Classifying run with Foundation Models…")
+        let stdoutText = logs.filter { $0.kind == .stdout }.map(\.text).joined(separator: "\n")
+        let stderrText = logs.filter { $0.kind == .stderr }.map(\.text).joined(separator: "\n")
+        let classifier = outcomeClassifier
+        let result = await classifier.classify(stdout: stdoutText, stderr: stderrText, prompt: plan.prompt)
+        guard let result else {
+            appendSystem("Outcome classification unavailable (Foundation Models not enabled).")
+            return
+        }
+        classificationResult = result
+        if let outcome = activeOutcome {
+            if let data = try? JSONEncoder().encode(result.filesChanged),
+               let json = String(data: data, encoding: .utf8) {
+                outcome.classifiedFilesChanged = json
+            }
+            outcome.classifiedTestsPassed = result.testsPassed
+            outcome.classifiedTestsFailed = result.testsFailed
+            outcome.classifiedDescription = result.oneLineDescription
+            outcome.classifiedAccuracyRating = result.suggestedAccuracyRating.rawValue
+            if outcome.accuracyRating == AccuracyRating.unrated.rawValue {
+                outcome.accuracyRating = result.suggestedAccuracyRating.rawValue
+                appendSystem("Auto-rated: \(result.suggestedAccuracyRating.rawValue)")
+            }
+            try? modelContext.save()
+        }
+        appendSystem("Classified: \(result.oneLineDescription)")
     }
 
     /// Build the prompt the agent will actually receive. Embeds the

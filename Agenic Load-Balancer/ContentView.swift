@@ -31,6 +31,9 @@ struct ContentView: View {
         status: "loading",
         detail: "Checking local repository."
     )
+    // Phase 7.3: command bar coordinator and presentation state
+    @State private var commandBarCoordinator = CommandBarCoordinator()
+    @State private var showCommandBar = false
 
     var body: some View {
         NavigationSplitView {
@@ -68,6 +71,13 @@ struct ContentView: View {
                 }
 
                 Button {
+                    showCommandBar = true
+                } label: {
+                    Label("AI Assistant", systemImage: "sparkles")
+                }
+                .help("Open the natural-language command bar powered by Foundation Models (Phase 7.3)")
+
+                Button {
                     Task {
                         await refreshCloudStatus()
                     }
@@ -75,6 +85,14 @@ struct ContentView: View {
                     Label("Sync Status", systemImage: "arrow.triangle.2.circlepath.icloud")
                 }
             }
+        }
+        .sheet(isPresented: $showCommandBar) {
+            CommandBarView(
+                coordinator: commandBarCoordinator,
+                providers: providers,
+                usageEntries: usageEntries,
+                outcomes: outcomes
+            )
         }
     }
 
@@ -303,6 +321,8 @@ private struct PromptRouterView: View {
     @State private var approvalStatus = ""
     @State private var dispatcher = RunDispatcher()
     @State private var isApprovalSheetPresented = false
+    // Phase 7.5: tie-breaker result when top providers score within 5%
+    @State private var tieBreakResult: RoutingTieBreakResult?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -395,6 +415,23 @@ private struct PromptRouterView: View {
                             description: Text("Enter a prompt and rank agents to see score breakdowns.")
                         )
                     } else {
+                        // Phase 7.5: show on-device tie-break reasoning when
+                        // the top two scores are very close.
+                        if let tieBreak = tieBreakResult {
+                            GlassPanel {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "sparkles")
+                                            .foregroundStyle(Color.purple)
+                                        Text("AI Routing Insight")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                    Text(tieBreak.reasoning)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                         ForEach(scores) { score in
                             RouteScoreRow(
                                 score: score,
@@ -451,6 +488,8 @@ private struct PromptRouterView: View {
         let promptText = prompt
         let mode = selectedMode
 
+        tieBreakResult = nil
+
         Task {
             let ranked = await AppServices.routingEngine.rank(
                 prompt: promptText,
@@ -465,6 +504,17 @@ private struct PromptRouterView: View {
                 selectedScoreID = ranked.first?.id
                 if let first = ranked.first {
                     buildCommandPreview(for: first)
+                }
+            }
+            // Phase 7.5: run tie-breaker when top two are within 5 points.
+            if ranked.count >= 2 {
+                let diff = ranked[0].totalScore - ranked[1].totalScore
+                if diff < 0.05 {
+                    let breakResult = await AppServices.tieBreaker.tieBreak(
+                        prompt: promptText,
+                        candidates: Array(ranked.prefix(3))
+                    )
+                    await MainActor.run { self.tieBreakResult = breakResult }
                 }
             }
         }
@@ -593,8 +643,23 @@ private struct ApprovalSheetView: View {
             preflightExcerpt = nil
             return
         }
-        let excerpt = await AppServices.coordination.readAgentNotesExcerpt(rootPath: rootPath)
-        preflightExcerpt = excerpt
+        // Phase 7.4: read more content than the 4 KB default so the summarizer
+        // has full visibility into the file.
+        let rawContent = await AppServices.coordination.readAgentNotesExcerpt(
+            rootPath: rootPath,
+            maxBytes: 32768
+        )
+        guard let content = rawContent, !content.isEmpty else {
+            preflightExcerpt = nil
+            return
+        }
+        // Use Foundation Models to extract only the claims relevant to this
+        // specific prompt. Falls back to 4 KB truncation when FM is unavailable.
+        let summary = await AppServices.agentNotesSummarizer.summarize(
+            content: content,
+            forPrompt: plan.prompt
+        )
+        preflightExcerpt = summary ?? String(content.prefix(4096))
     }
 
     @ViewBuilder
@@ -843,6 +908,38 @@ private struct ApprovalSheetView: View {
 
     @ViewBuilder
     private var outcomeRating: some View {
+        // Phase 7.2: show the Foundation Models classification when available.
+        if let classification = dispatcher.classificationResult {
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Color.purple)
+                        Text("AI Classification")
+                            .font(.headline)
+                    }
+                    Text(classification.oneLineDescription)
+                        .font(.callout)
+                    HStack(spacing: 14) {
+                        if !classification.filesChanged.isEmpty {
+                            Label("\(classification.filesChanged.count) file(s) changed", systemImage: "doc.text")
+                        }
+                        if classification.testsPassed + classification.testsFailed > 0 {
+                            Label("\(classification.testsPassed) passed", systemImage: "checkmark.circle")
+                                .foregroundStyle(Color.green)
+                            Label("\(classification.testsFailed) failed", systemImage: "xmark.circle")
+                                .foregroundStyle(Color.red)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Text("Suggested rating: \(classification.suggestedAccuracyRating.rawValue)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
         GlassPanel {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Rate outcome")
@@ -2597,6 +2694,9 @@ private struct AgentNotesView: View {
     @State private var reconciliations: [String: AgentNotesReconciliation] = [:]
     @State private var statusByProject: [String: String] = [:]
     @State private var pendingApply: PendingApply?
+    // Phase 7.4: merge proposals and their loading state
+    @State private var mergeProposalByProject: [String: String] = [:]
+    @State private var mergePendingProjects: Set<String> = []
 
     private struct PendingApply: Identifiable {
         let id = UUID()
@@ -2629,6 +2729,8 @@ private struct AgentNotesView: View {
                         eventCountForProject: coordinationEvents
                             .filter { $0.projectID == project.identifier || $0.projectID == nil }
                             .count,
+                        mergeProposal: mergeProposalByProject[project.identifier],
+                        isMergePending: mergePendingProjects.contains(project.identifier),
                         onReconcile: {
                             await reconcile(project: project)
                         },
@@ -2641,6 +2743,17 @@ private struct AgentNotesView: View {
                                     suggestedContent: reconciliation.suggestedContent
                                 )
                             }
+                        },
+                        onProposeMerge: {
+                            await proposeMerge(project: project)
+                        },
+                        onApplyMergeProposal: { proposal in
+                            pendingApply = PendingApply(
+                                projectID: project.identifier,
+                                projectName: project.name,
+                                rootPath: project.rootPath ?? "",
+                                suggestedContent: proposal
+                            )
                         }
                     )
                 }
@@ -2736,6 +2849,28 @@ private struct AgentNotesView: View {
         pendingApply = nil
     }
 
+    /// Phase 7.4: ask Foundation Models to propose a merged AgentNotes.md
+    /// from the diverged on-disk and generated versions. The user still gates
+    /// the final write through the existing confirmationDialog.
+    private func proposeMerge(project: AgentProject) async {
+        guard let reconciliation = reconciliations[project.identifier] else { return }
+        guard case .fileDiverged = reconciliation.state else { return }
+
+        mergePendingProjects.insert(project.identifier)
+        statusByProject[project.identifier] = "Proposing AI merge…"
+        let proposal = await AppServices.mergeProposer.proposeMerge(
+            onDisk: reconciliation.onDiskContent ?? "",
+            generated: reconciliation.suggestedContent
+        )
+        mergePendingProjects.remove(project.identifier)
+        if let proposal {
+            mergeProposalByProject[project.identifier] = proposal
+            statusByProject[project.identifier] = "AI merge proposal ready — review before applying."
+        } else {
+            statusByProject[project.identifier] = "Merge proposal unavailable (Foundation Models not enabled)."
+        }
+    }
+
     private static func statusText(for reconciliation: AgentNotesReconciliation) -> String {
         switch reconciliation.state {
         case .fileMissing: "AgentNotes.md is missing — generate to create it."
@@ -2752,8 +2887,13 @@ private struct AgentNotesProjectRow: View {
     let reconciliation: AgentNotesReconciliation?
     let statusText: String?
     let eventCountForProject: Int
+    // Phase 7.4
+    let mergeProposal: String?
+    let isMergePending: Bool
     let onReconcile: () async -> Void
     let onApply: () -> Void
+    let onProposeMerge: () async -> Void
+    let onApplyMergeProposal: (String) -> Void
 
     var body: some View {
         GlassPanel {
@@ -2793,11 +2933,52 @@ private struct AgentNotesProjectRow: View {
                             Label("Regenerate from SwiftData", systemImage: "doc.text.magnifyingglass")
                         }
                         .buttonStyle(.borderedProminent)
+
+                        // Phase 7.4: propose a merge when the file has diverged
+                        if case .fileDiverged = reconciliation.state {
+                            Button {
+                                Task { await onProposeMerge() }
+                            } label: {
+                                if isMergePending {
+                                    Label("Proposing…", systemImage: "ellipsis.circle")
+                                } else {
+                                    Label("AI Merge Proposal", systemImage: "sparkles")
+                                }
+                            }
+                            .disabled(isMergePending)
+                        }
                     }
                     Spacer()
                     Text("\(eventCountForProject) coordination events")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                // Phase 7.4: show the merge proposal when it arrives.
+                if let proposal = mergeProposal {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("AI Merge Proposal")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.purple)
+                        ScrollView {
+                            Text(proposal)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                        }
+                        .frame(maxHeight: 140)
+                        .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+
+                        Button {
+                            onApplyMergeProposal(proposal)
+                        } label: {
+                            Label("Use Proposal", systemImage: "checkmark.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color.purple)
+                        .font(.caption)
+                    }
                 }
             }
         }
@@ -3198,6 +3379,125 @@ private struct GlassPanel<Content: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(.separator.opacity(0.28), lineWidth: 1)
             )
+    }
+}
+
+// MARK: - Phase 7.3: AI Command Bar
+
+/// Natural-language command bar backed by Foundation Models tool calling.
+/// Lets users describe goals in plain language; the model invokes `RankAgentsTool`
+/// and `ReadDashboardMetricsTool` to surface live data in its response.
+private struct CommandBarView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var coordinator: CommandBarCoordinator
+
+    let providers: [AgentProviderProfile]
+    let usageEntries: [UsageLedgerEntry]
+    let outcomes: [RunOutcomeRecord]
+
+    private var usageSnapshots: [UsageSnapshot] {
+        UsageSnapshotBuilder.build(from: usageEntries, outcomes: outcomes, providers: providers)
+    }
+
+    private var accuracySnapshots: [AccuracySnapshot] {
+        AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(Color.purple)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AI Assistant")
+                        .font(.title2.weight(.semibold))
+                    Text("Powered by Apple Foundation Models · uses RankAgents and ReadDashboardMetrics tools")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Close") { dismiss() }
+            }
+            .padding(20)
+
+            Divider()
+
+            // Response area
+            ScrollView {
+                Group {
+                    if coordinator.response.isEmpty && !coordinator.isGenerating {
+                        VStack(spacing: 12) {
+                            if let error = coordinator.errorMessage {
+                                Label(error, systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(Color.orange)
+                                    .multilineTextAlignment(.center)
+                            } else {
+                                Image(systemName: "sparkles")
+                                    .font(.largeTitle)
+                                    .foregroundStyle(Color.purple.opacity(0.4))
+                                Text("Ask anything about your providers, routing decisions, or performance metrics.")
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(40)
+                    } else {
+                        Text(coordinator.isGenerating && coordinator.response.isEmpty ? "Thinking…" : coordinator.response)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(20)
+                    }
+                }
+            }
+            .frame(minHeight: 240)
+
+            Divider()
+
+            // Input area
+            HStack(spacing: 10) {
+                TextField("Ask about providers, metrics, routing…", text: $coordinator.question, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(3, reservesSpace: false)
+                    .onSubmit { askQuestion() }
+
+                if coordinator.isGenerating {
+                    Button {
+                        coordinator.cancel()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.red)
+                } else {
+                    Button {
+                        askQuestion()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(coordinator.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? Color.secondary : Color.accentColor)
+                    .disabled(coordinator.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(.return, modifiers: [.command])
+                }
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 460, idealHeight: 540)
+        .background(.regularMaterial)
+    }
+
+    private func askQuestion() {
+        coordinator.ask(
+            providers: providers.map { $0.snapshot() },
+            usage: usageSnapshots,
+            accuracy: accuracySnapshots
+        )
     }
 }
 

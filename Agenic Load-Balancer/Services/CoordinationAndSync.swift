@@ -21,6 +21,13 @@ enum AppServices {
     static let restore = SnapshotRestoreCoordinator()
     static let setupWizard = ProviderSetupWizard()
     static let gitCheckpoint: GitCheckpointing = GitCheckpointCoordinator()
+    // Phase 7.2 — structured outcome classification
+    static let outcomeClassifier: any OutcomeClassifying = LiveOutcomeClassifier()
+    // Phase 7.4 — intelligent AgentNotes preflight + merge proposal
+    static let agentNotesSummarizer: any AgentNotesSummarizing = LiveAgentNotesSummarizer()
+    static let mergeProposer: any AgentNotesMergeProposing = LiveAgentNotesMergeProposer()
+    // Phase 7.5 — routing tie-breaker
+    static let tieBreaker: any RoutingTieBreaking = LiveRoutingTieBreaker()
 }
 
 @MainActor

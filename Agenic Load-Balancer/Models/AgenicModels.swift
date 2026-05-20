@@ -396,6 +396,13 @@ final class RunOutcomeRecord {
     /// Phase 6: commit hash when this run produced a git checkpoint.
     /// Optional + additive, so existing CloudKit-synced records remain valid.
     var commitSHA: String?
+    /// Phase 7.2: structured classification stamped by Foundation Models after a
+    /// successful run. All fields are optional + additive for CloudKit compat.
+    var classifiedFilesChanged: String?     // JSON-encoded [String]
+    var classifiedTestsPassed: Int?
+    var classifiedTestsFailed: Int?
+    var classifiedDescription: String?
+    var classifiedAccuracyRating: String?   // AccuracyRating.rawValue suggested by FM
 
     init(
         identifier: String = UUID().uuidString,
@@ -410,7 +417,12 @@ final class RunOutcomeRecord {
         startedAt: Date = Date(),
         endedAt: Date? = nil,
         durationSeconds: Double = 0,
-        commitSHA: String? = nil
+        commitSHA: String? = nil,
+        classifiedFilesChanged: String? = nil,
+        classifiedTestsPassed: Int? = nil,
+        classifiedTestsFailed: Int? = nil,
+        classifiedDescription: String? = nil,
+        classifiedAccuracyRating: String? = nil
     ) {
         self.identifier = identifier
         self.runID = runID
@@ -425,6 +437,11 @@ final class RunOutcomeRecord {
         self.endedAt = endedAt
         self.durationSeconds = durationSeconds
         self.commitSHA = commitSHA
+        self.classifiedFilesChanged = classifiedFilesChanged
+        self.classifiedTestsPassed = classifiedTestsPassed
+        self.classifiedTestsFailed = classifiedTestsFailed
+        self.classifiedDescription = classifiedDescription
+        self.classifiedAccuracyRating = classifiedAccuracyRating
     }
 }
 

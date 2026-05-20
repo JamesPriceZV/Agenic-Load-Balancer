@@ -417,3 +417,478 @@ enum AgentAdapterFactory {
         return GenericCLIAdapter(providerID: providerID, commandProfile: commandProfile)
     }
 }
+
+// MARK: - Phase 7.2: Structured outcome classification
+
+/// Sendable result produced by analysing a run's stdout/stderr with
+/// Foundation Models. All fields are value types so the struct is Sendable.
+struct RunClassificationResult: Sendable, Equatable {
+    let filesChanged: [String]
+    let testsPassed: Int
+    let testsFailed: Int
+    let oneLineDescription: String
+    let suggestedAccuracyRating: AccuracyRating
+}
+
+/// Abstraction over on-device outcome classification so the dispatcher
+/// can be tested with a scripted stub without Apple Intelligence.
+protocol OutcomeClassifying: Sendable {
+    func classify(stdout: String, stderr: String, prompt: String) async -> RunClassificationResult?
+}
+
+/// Test stub — returns a pre-configured result on every call.
+struct StubOutcomeClassifier: OutcomeClassifying {
+    let result: RunClassificationResult?
+    func classify(stdout: String, stderr: String, prompt: String) async -> RunClassificationResult? { result }
+}
+
+/// Production classifier. Gated on Foundation Models availability; falls back
+/// to `nil` (no classification) when Apple Intelligence is disabled or the
+/// framework is absent, which the caller treats as "no auto-classification".
+actor LiveOutcomeClassifier: OutcomeClassifying {
+    private let availabilityChecker: any FoundationModelsAvailabilityChecking
+
+    init(availabilityChecker: any FoundationModelsAvailabilityChecking = SystemLanguageModelAvailabilityChecker()) {
+        self.availabilityChecker = availabilityChecker
+    }
+
+    func classify(stdout: String, stderr: String, prompt: String) async -> RunClassificationResult? {
+        guard availabilityChecker.currentAvailability().isAvailable, !stdout.isEmpty else { return nil }
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return await classifyWithFoundationModels(stdout: stdout, stderr: stderr, prompt: prompt)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private func classifyWithFoundationModels(stdout: String, stderr: String, prompt: String) async -> RunClassificationResult? {
+        do {
+            let session = LanguageModelSession(instructions: """
+                You classify the outcome of AI coding agent runs. Extract structured metadata \
+                from the provided stdout/stderr. Be accurate and concise. Use 0 for test counts \
+                when tests were not run. Files should be relative paths or filenames only.
+                """)
+            let cap = 6000
+            let outputText: String = stderr.isEmpty
+                ? String(stdout.prefix(cap))
+                : "\(String(stdout.prefix(cap / 2)))\n---STDERR---\n\(String(stderr.prefix(cap / 2)))"
+            let userMessage = "Prompt: \(prompt.prefix(300))\n\nOutput:\n\(outputText)"
+            let response = try await session.respond(to: userMessage, generating: RunSummaryOutput.self)
+            return RunClassificationResult(from: response.content)
+        } catch {
+            return nil
+        }
+    }
+    #endif
+}
+
+#if canImport(FoundationModels)
+@available(macOS 26.0, *)
+@Generable
+private struct RunSummaryOutput {
+    @Guide(description: "Relative paths or filenames of files created or modified. Empty if none.")
+    let filesChanged: [String]
+
+    @Guide(description: "Number of tests that passed. Use 0 when tests were not run.")
+    let testsPassed: Int
+
+    @Guide(description: "Number of tests that failed. Use 0 when tests were not run.")
+    let testsFailed: Int
+
+    @Guide(description: "One sentence describing what the run accomplished or attempted.")
+    let oneLineDescription: String
+
+    @Guide(description: "Accuracy category that best characterises this run's outcome.")
+    let suggestedAccuracy: SuggestedAccuracy
+
+    @Generable
+    enum SuggestedAccuracy {
+        case correct
+        case minorFixNeeded
+        case debugNeeded
+        case recodeNeeded
+        case brokeBuildOrTests
+    }
+}
+
+@available(macOS 26.0, *)
+private extension RunClassificationResult {
+    init(from output: RunSummaryOutput) {
+        let rating: AccuracyRating
+        switch output.suggestedAccuracy {
+        case .correct: rating = .correct
+        case .minorFixNeeded: rating = .minorFixNeeded
+        case .debugNeeded: rating = .debugNeeded
+        case .recodeNeeded: rating = .recodeNeeded
+        case .brokeBuildOrTests: rating = .brokeBuildOrTests
+        }
+        self.init(
+            filesChanged: output.filesChanged,
+            testsPassed: output.testsPassed,
+            testsFailed: output.testsFailed,
+            oneLineDescription: output.oneLineDescription,
+            suggestedAccuracyRating: rating
+        )
+    }
+}
+#endif
+
+// MARK: - Phase 7.3: Tool-calling command bar
+
+/// Observable coordinator for the natural-language command bar. Lives on the
+/// main actor; the actual Foundation Models session is created inside a task
+/// behind availability guards so the coordinator compiles on all platforms.
+@MainActor
+@Observable
+final class CommandBarCoordinator {
+    private(set) var response: String = ""
+    private(set) var isGenerating: Bool = false
+    private(set) var errorMessage: String?
+    var question: String = ""
+
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
+
+    func ask(providers: [AgentProviderSnapshot], usage: [UsageSnapshot], accuracy: [AccuracySnapshot]) {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        streamTask?.cancel()
+        response = ""
+        errorMessage = nil
+        isGenerating = true
+
+        let p = providers
+        let u = usage
+        let a = accuracy
+
+        streamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let availability = SystemLanguageModelAvailabilityChecker().currentAvailability()
+            guard availability.isAvailable else {
+                self.errorMessage = availability.message
+                self.isGenerating = false
+                return
+            }
+            #if canImport(FoundationModels)
+            if #available(macOS 26.0, *) {
+                do {
+                    let rankTool = RankAgentsTool(providers: p, usageSnapshots: u, accuracySnapshots: a)
+                    let metricsTool = ReadDashboardMetricsTool(usageSnapshots: u, accuracySnapshots: a)
+                    let session = LanguageModelSession(
+                        tools: [rankTool, metricsTool],
+                        instructions: """
+                            You are an intelligent assistant for the Agenic Load-Balancer, a macOS \
+                            orchestration console that routes coding prompts to AI providers. Help \
+                            the user understand routing decisions, provider metrics, and coordination \
+                            state. Use the available tools to access live data. Keep answers concise.
+                            """
+                    )
+                    for try await partial in session.streamResponse(to: q) {
+                        if Task.isCancelled { break }
+                        self.response = partial.content
+                    }
+                } catch {
+                    self.errorMessage = (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription
+                }
+            } else {
+                self.errorMessage = "Foundation Models requires macOS 26 or later."
+            }
+            #else
+            self.errorMessage = "Foundation Models framework is not available in this build."
+            #endif
+            self.isGenerating = false
+        }
+    }
+
+    func cancel() {
+        streamTask?.cancel()
+        isGenerating = false
+    }
+
+    func reset() {
+        cancel()
+        question = ""
+        response = ""
+        errorMessage = nil
+    }
+}
+
+#if canImport(FoundationModels)
+@available(macOS 26.0, *)
+private struct RankAgentsTool: Tool {
+    let name = "rank_agents"
+    let description = "Rank AI coding providers for a given task. Returns the top 3 with scores and rationale."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "The coding task or user prompt to rank providers for.")
+        let prompt: String
+    }
+
+    let providers: [AgentProviderSnapshot]
+    let usageSnapshots: [UsageSnapshot]
+    let accuracySnapshots: [AccuracySnapshot]
+
+    func call(arguments: Arguments) async throws -> ToolOutput {
+        let ranked = await AppServices.routingEngine.rank(
+            prompt: arguments.prompt,
+            mode: .implementation,
+            providers: providers,
+            usage: usageSnapshots,
+            accuracy: accuracySnapshots,
+            coordinationEvents: []
+        )
+        guard !ranked.isEmpty else {
+            return ToolOutput(string: "No providers are currently available or enabled.")
+        }
+        let lines = ranked.prefix(3).map { score in
+            "• \(score.providerName): \(score.totalScore.formatted(.percent.precision(.fractionLength(0)))) — \(score.rationale)"
+        }
+        return ToolOutput(string: lines.joined(separator: "\n"))
+    }
+}
+
+@available(macOS 26.0, *)
+private struct ReadDashboardMetricsTool: Tool {
+    let name = "read_dashboard_metrics"
+    let description = "Read current provider metrics: usage, success rates, latency, and estimated costs."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "Provider ID to filter by, or empty string for all providers.")
+        let providerID: String
+    }
+
+    let usageSnapshots: [UsageSnapshot]
+    let accuracySnapshots: [AccuracySnapshot]
+
+    func call(arguments: Arguments) async throws -> ToolOutput {
+        let filter = arguments.providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshots = filter.isEmpty
+            ? usageSnapshots
+            : usageSnapshots.filter { $0.providerID.contains(filter) }
+        guard !snapshots.isEmpty else {
+            return ToolOutput(string: "No usage data available.")
+        }
+        let lines = snapshots.map { snap in
+            let acc = accuracySnapshots.first { $0.providerID == snap.providerID }
+            return "• \(snap.providerID): calls=\(snap.callsToday), " +
+                "success=\(snap.successRate.formatted(.percent.precision(.fractionLength(0)))), " +
+                "cost=\(snap.estimatedCostToday.formatted(.currency(code: "USD"))), " +
+                "accuracy=\((acc?.averageScore ?? 0.62).formatted(.percent.precision(.fractionLength(0))))"
+        }
+        return ToolOutput(string: lines.joined(separator: "\n"))
+    }
+}
+#endif
+
+// MARK: - Phase 7.4: Intelligent AgentNotes preflight + merge proposal
+
+/// Summarises AgentNotes.md content relevant to a specific prompt, replacing
+/// the byte-truncated raw excerpt with a focused, on-device-generated summary.
+protocol AgentNotesSummarizing: Sendable {
+    func summarize(content: String, forPrompt prompt: String) async -> String?
+}
+
+/// Test stub — returns the pre-configured string on every call.
+struct StubAgentNotesSummarizer: AgentNotesSummarizing {
+    let result: String?
+    func summarize(content: String, forPrompt prompt: String) async -> String? { result }
+}
+
+/// Production summariser. Returns `nil` when Foundation Models is unavailable
+/// so callers fall back to the raw truncated excerpt.
+actor LiveAgentNotesSummarizer: AgentNotesSummarizing {
+    private let availabilityChecker: any FoundationModelsAvailabilityChecking
+
+    init(availabilityChecker: any FoundationModelsAvailabilityChecking = SystemLanguageModelAvailabilityChecker()) {
+        self.availabilityChecker = availabilityChecker
+    }
+
+    func summarize(content: String, forPrompt prompt: String) async -> String? {
+        guard availabilityChecker.currentAvailability().isAvailable, !content.isEmpty else { return nil }
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return await summarizeWithFoundationModels(content: content, prompt: prompt)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private func summarizeWithFoundationModels(content: String, prompt: String) async -> String? {
+        do {
+            let session = LanguageModelSession(instructions: """
+                You extract relevant coordination claims from AgentNotes.md files. Given a \
+                task prompt, identify only the active work items, blockers, and claims that \
+                directly affect that task. Format as 3–5 concise bullet points. Skip completed \
+                work, historical checkpoints, and unrelated sections.
+                """)
+            let message = "Task: \(prompt.prefix(400))\n\nAgentNotes.md:\n\(content.prefix(6000))"
+            var accumulated = ""
+            for try await partial in session.streamResponse(to: message) {
+                accumulated = partial.content
+            }
+            return accumulated.isEmpty ? nil : accumulated
+        } catch {
+            return nil
+        }
+    }
+    #endif
+}
+
+/// Proposes a merged AgentNotes.md when the on-disk version has diverged from
+/// the SwiftData-generated version. The user still gates the final write
+/// through the existing `confirmationDialog`.
+protocol AgentNotesMergeProposing: Sendable {
+    func proposeMerge(onDisk: String, generated: String) async -> String?
+}
+
+/// Test stub.
+struct StubAgentNotesMergeProposer: AgentNotesMergeProposing {
+    let result: String?
+    func proposeMerge(onDisk: String, generated: String) async -> String? { result }
+}
+
+/// Production merge proposer backed by Foundation Models.
+actor LiveAgentNotesMergeProposer: AgentNotesMergeProposing {
+    private let availabilityChecker: any FoundationModelsAvailabilityChecking
+
+    init(availabilityChecker: any FoundationModelsAvailabilityChecking = SystemLanguageModelAvailabilityChecker()) {
+        self.availabilityChecker = availabilityChecker
+    }
+
+    func proposeMerge(onDisk: String, generated: String) async -> String? {
+        guard availabilityChecker.currentAvailability().isAvailable else { return nil }
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return await proposeWithFoundationModels(onDisk: onDisk, generated: generated)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private func proposeWithFoundationModels(onDisk: String, generated: String) async -> String? {
+        do {
+            let session = LanguageModelSession(instructions: """
+                You merge two versions of an AgentNotes.md coordination file. Preserve all \
+                active work claims, checkpoints, and blockers from both versions. Remove \
+                duplicates. Maintain the markdown structure from the generated version. \
+                Output only the merged file content — no commentary.
+                """)
+            let message = """
+                Merge these two AgentNotes.md versions:
+
+                === ON-DISK VERSION ===
+                \(onDisk.prefix(4000))
+
+                === GENERATED VERSION (from SwiftData) ===
+                \(generated.prefix(4000))
+                """
+            var accumulated = ""
+            for try await partial in session.streamResponse(to: message) {
+                accumulated = partial.content
+            }
+            return accumulated.isEmpty ? nil : accumulated
+        } catch {
+            return nil
+        }
+    }
+    #endif
+}
+
+// MARK: - Phase 7.5: Routing tie-breaker
+
+/// On-device explanation produced when the top providers score within 5% of
+/// each other. Optional layer — deterministic scoring stays canonical.
+struct RoutingTieBreakResult: Sendable, Equatable {
+    let preferredProviderID: String
+    let reasoning: String
+}
+
+/// Abstraction so the tie-breaker is testable without Apple Intelligence.
+protocol RoutingTieBreaking: Sendable {
+    func tieBreak(prompt: String, candidates: [RoutingScoreBreakdown]) async -> RoutingTieBreakResult?
+}
+
+/// Test stub.
+struct StubRoutingTieBreaker: RoutingTieBreaking {
+    let result: RoutingTieBreakResult?
+    func tieBreak(prompt: String, candidates: [RoutingScoreBreakdown]) async -> RoutingTieBreakResult? { result }
+}
+
+/// Production tie-breaker. Uses `@Generable` guided generation to produce a
+/// typed `RoutingTieBreakResult`; falls back to `nil` when unavailable.
+actor LiveRoutingTieBreaker: RoutingTieBreaking {
+    private let availabilityChecker: any FoundationModelsAvailabilityChecking
+
+    init(availabilityChecker: any FoundationModelsAvailabilityChecking = SystemLanguageModelAvailabilityChecker()) {
+        self.availabilityChecker = availabilityChecker
+    }
+
+    func tieBreak(prompt: String, candidates: [RoutingScoreBreakdown]) async -> RoutingTieBreakResult? {
+        guard availabilityChecker.currentAvailability().isAvailable, candidates.count >= 2 else { return nil }
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return await tieBreakWithFoundationModels(prompt: prompt, candidates: candidates)
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private func tieBreakWithFoundationModels(prompt: String, candidates: [RoutingScoreBreakdown]) async -> RoutingTieBreakResult? {
+        do {
+            let session = LanguageModelSession(instructions: """
+                You are a routing expert for AI coding agents. Given a close tie in routing \
+                scores, pick the best provider for the specific task. Return the providerID \
+                exactly as given in the candidate list.
+                """)
+            let validIDs = candidates.map(\.providerID).joined(separator: ", ")
+            let candidateList = candidates.map { c in
+                "ID: \(c.providerID), Name: \(c.providerName), Score: \(String(format: "%.2f", c.totalScore)), Info: \(c.rationale)"
+            }.joined(separator: "\n")
+            let userMessage = """
+                Task: \(prompt.prefix(400))
+
+                Candidates (valid providerIDs: \(validIDs)):
+                \(candidateList)
+
+                Which provider is best for this task and why?
+                """
+            let response = try await session.respond(to: userMessage, generating: RoutingTieBreakOutput.self)
+            return RoutingTieBreakResult(
+                preferredProviderID: response.content.preferredProviderID,
+                reasoning: response.content.reasoning
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    @available(macOS 26.0, *)
+    @Generable
+    private struct RoutingTieBreakOutput {
+        @Guide(description: "The providerID of the recommended provider, copied exactly from the candidate list.")
+        let preferredProviderID: String
+
+        @Guide(description: "One to two sentences explaining why this provider best fits the given task.")
+        let reasoning: String
+    }
+    #endif
+}

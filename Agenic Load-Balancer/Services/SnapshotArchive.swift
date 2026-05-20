@@ -497,6 +497,12 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
     let endedAt: Date?
     let durationSeconds: Double
     let commitSHA: String?
+    // Phase 7.2: optional classification fields — older archives decode these as nil.
+    let classifiedFilesChanged: String?
+    let classifiedTestsPassed: Int?
+    let classifiedTestsFailed: Int?
+    let classifiedDescription: String?
+    let classifiedAccuracyRating: String?
 
     init(from record: RunOutcomeRecord) {
         identifier = record.identifier
@@ -512,6 +518,11 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
         endedAt = record.endedAt
         durationSeconds = record.durationSeconds
         commitSHA = record.commitSHA
+        classifiedFilesChanged = record.classifiedFilesChanged
+        classifiedTestsPassed = record.classifiedTestsPassed
+        classifiedTestsFailed = record.classifiedTestsFailed
+        classifiedDescription = record.classifiedDescription
+        classifiedAccuracyRating = record.classifiedAccuracyRating
     }
 
     func makeRecord() -> RunOutcomeRecord {
@@ -528,7 +539,12 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
             startedAt: startedAt,
             endedAt: endedAt,
             durationSeconds: durationSeconds,
-            commitSHA: commitSHA
+            commitSHA: commitSHA,
+            classifiedFilesChanged: classifiedFilesChanged,
+            classifiedTestsPassed: classifiedTestsPassed,
+            classifiedTestsFailed: classifiedTestsFailed,
+            classifiedDescription: classifiedDescription,
+            classifiedAccuracyRating: classifiedAccuracyRating
         )
     }
 }
