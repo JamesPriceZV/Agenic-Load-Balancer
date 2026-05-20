@@ -497,6 +497,14 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
     let endedAt: Date?
     let durationSeconds: Double
     let commitSHA: String?
+    /// Phase 7.2 additive fields. Optional / defaulted so older archives
+    /// (written before Phase 7.2 landed) decode cleanly without migration.
+    let aiOneLineDescription: String?
+    let aiTestsPassed: Int?
+    let aiTestsFailed: Int?
+    let aiFilesChangedJSON: String?
+    let aiSuggestedAccuracyRating: String?
+    let aiSummaryGeneratedAt: Date?
 
     init(from record: RunOutcomeRecord) {
         identifier = record.identifier
@@ -512,6 +520,12 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
         endedAt = record.endedAt
         durationSeconds = record.durationSeconds
         commitSHA = record.commitSHA
+        aiOneLineDescription = record.aiOneLineDescription
+        aiTestsPassed = record.aiTestsPassed
+        aiTestsFailed = record.aiTestsFailed
+        aiFilesChangedJSON = record.aiFilesChangedJSON
+        aiSuggestedAccuracyRating = record.aiSuggestedAccuracyRating
+        aiSummaryGeneratedAt = record.aiSummaryGeneratedAt
     }
 
     func makeRecord() -> RunOutcomeRecord {
@@ -528,7 +542,13 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
             startedAt: startedAt,
             endedAt: endedAt,
             durationSeconds: durationSeconds,
-            commitSHA: commitSHA
+            commitSHA: commitSHA,
+            aiOneLineDescription: aiOneLineDescription,
+            aiTestsPassed: aiTestsPassed,
+            aiTestsFailed: aiTestsFailed,
+            aiFilesChangedJSON: aiFilesChangedJSON ?? "[]",
+            aiSuggestedAccuracyRating: aiSuggestedAccuracyRating,
+            aiSummaryGeneratedAt: aiSummaryGeneratedAt
         )
     }
 }

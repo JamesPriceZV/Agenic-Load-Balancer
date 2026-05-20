@@ -99,6 +99,27 @@ final class RunDispatcher {
         }
     }
 
+    /// Phase 7.2: status of the on-device AI run summarizer. Independent
+    /// of the run's own status — a failed summary must NEVER degrade a
+    /// successful run.
+    enum AISummaryStatus: Sendable, Equatable {
+        case notRequested
+        case pending
+        case unavailable(reason: String)
+        case succeeded(summary: RunSummary)
+        case failed(reason: String)
+
+        var label: String {
+            switch self {
+            case .notRequested: "—"
+            case .pending: "Summarising…"
+            case .unavailable(let reason): "Unavailable: \(reason)"
+            case .succeeded: "Summary ready"
+            case .failed(let reason): "Summary failed: \(reason)"
+            }
+        }
+    }
+
     // MARK: Observable state surfaced to SwiftUI
     private(set) var status: LiveStatus = .idle
     private(set) var logs: [LogLine] = []
@@ -113,6 +134,8 @@ final class RunDispatcher {
     private(set) var completionTokens: Int = 0
     private(set) var checkpointStatus: CheckpointStatus = .notRequested
     private(set) var preflightExcerpt: String?
+    /// Phase 7.2: live AI summary state, surfaced to the approval sheet.
+    private(set) var aiSummaryStatus: AISummaryStatus = .notRequested
 
     // MARK: Internal collaborators (excluded from observation tracking)
     @ObservationIgnored private let runner: AgentRunning
@@ -120,6 +143,7 @@ final class RunDispatcher {
     @ObservationIgnored private let coordinationActor: ProjectCoordinationActor
     @ObservationIgnored private let cloudSync: CloudSyncCoordinator
     @ObservationIgnored private let gitCheckpoint: GitCheckpointing
+    @ObservationIgnored private let summarizer: any RunSummarizing
     @ObservationIgnored private let now: @Sendable () -> Date
 
     @ObservationIgnored private var streamTask: Task<Void, Never>?
@@ -137,6 +161,7 @@ final class RunDispatcher {
         coordinationActor: ProjectCoordinationActor = AppServices.coordination,
         cloudSync: CloudSyncCoordinator = AppServices.cloudSync,
         gitCheckpoint: GitCheckpointing = AppServices.gitCheckpoint,
+        summarizer: any RunSummarizing = RunSummarizerFactory.makeDefault(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
@@ -144,6 +169,7 @@ final class RunDispatcher {
         self.coordinationActor = coordinationActor
         self.cloudSync = cloudSync
         self.gitCheckpoint = gitCheckpoint
+        self.summarizer = summarizer
         self.now = now
     }
 
@@ -166,6 +192,7 @@ final class RunDispatcher {
         completionTokens = 0
         checkpointStatus = .notRequested
         preflightExcerpt = nil
+        aiSummaryStatus = .notRequested
         activeOutcome = nil
         activeUsage = nil
         activeCoordination = nil
@@ -266,6 +293,15 @@ final class RunDispatcher {
             // commit/push mode and the run actually succeeded.
             if self.status == .succeeded && plan.mode == .commitPushCheckpoint {
                 await self.performGitCheckpoint(plan: plan, modelContext: modelContext)
+            }
+
+            // Phase 7.2: feed the captured stdout/stderr buffer into the
+            // on-device run summarizer so the dashboard accuracy/performance
+            // signals get measurably better data without regex. Failures
+            // here must NEVER degrade the run outcome — the run is already
+            // marked .succeeded above; the summary is best-effort metadata.
+            if self.status == .succeeded {
+                await self.performRunSummarization(plan: plan, modelContext: modelContext)
             }
         }
     }
@@ -387,6 +423,64 @@ final class RunDispatcher {
             let message = error.localizedDescription
             checkpointStatus = .failed(reason: message)
             appendSystem("Git checkpoint failed: \(message)")
+        }
+    }
+
+    /// Phase 7.2: feed the captured stdout/stderr buffer to the run
+    /// summarizer and stamp the structured fields onto the active
+    /// `RunOutcomeRecord`. Errors are caught and surfaced through
+    /// `aiSummaryStatus` — the run itself is NOT marked failed.
+    private func performRunSummarization(plan: RunPlan, modelContext: ModelContext) async {
+        guard let outcome = activeOutcome else { return }
+        aiSummaryStatus = .pending
+        appendSystem("Requesting on-device run summary…")
+
+        let stdoutBuffer = logs
+            .filter { $0.kind == .stdout }
+            .map(\.text)
+            .joined(separator: "\n")
+        let stderrBuffer = logs
+            .filter { $0.kind == .stderr }
+            .map(\.text)
+            .joined(separator: "\n")
+
+        let input = RunSummaryInput(
+            prompt: plan.prompt,
+            providerID: plan.providerID,
+            providerName: plan.providerName,
+            mode: plan.mode,
+            exitCode: exitCode,
+            durationSeconds: outcome.durationSeconds,
+            standardOutput: stdoutBuffer,
+            standardError: stderrBuffer
+        )
+
+        do {
+            let summary = try await summarizer.summarize(input: input)
+            outcome.applyRunSummary(summary, generatedAt: now())
+            do {
+                try modelContext.save()
+            } catch {
+                appendSystem("Failed to save AI summary: \(error.localizedDescription)")
+            }
+            aiSummaryStatus = .succeeded(summary: summary)
+            appendSystem("AI summary: \(summary.oneLineDescription)")
+
+            let cloudSyncRef = cloudSync
+            Task { await cloudSyncRef.recordLocalSave() }
+        } catch let error as RunSummaryError {
+            switch error {
+            case .unavailable(let reason):
+                aiSummaryStatus = .unavailable(reason: reason)
+                appendSystem("AI summary skipped — \(reason)")
+            case .generationFailed(let reason):
+                aiSummaryStatus = .failed(reason: reason)
+                appendSystem("AI summary failed — \(reason)")
+            }
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            aiSummaryStatus = .failed(reason: message)
+            appendSystem("AI summary failed — \(message)")
         }
     }
 
