@@ -24,6 +24,15 @@ enum AgenicDataModel {
         CoordinationEventRecord.self,
         CloudSnapshotRecord.self,
         KeychainReferenceRecord.self,
+        AutonomyGoalRecord.self,
+        AutonomyPlanRecord.self,
+        AutonomyTaskRecord.self,
+        AutonomyPolicyRecord.self,
+        MachinePeerRecord.self,
+        AutonomyOperationRecord.self,
+        ConflictResolutionRecord.self,
+        ValidationGateRecord.self,
+        AuditTrailRecord.self,
     ]
 
     static var schema: Schema {
@@ -648,6 +657,282 @@ final class KeychainReferenceRecord {
         self.purpose = purpose
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class AutonomyGoalRecord {
+    var identifier: String = ""
+    var projectID: String?
+    var title: String = ""
+    var goalDescription: String = ""
+    var status: String = CoordinationStatus.planned.rawValue
+    var autonomyLevel: String = AutonomyLevel.proposeActions.rawValue
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        projectID: String? = nil,
+        title: String,
+        goalDescription: String,
+        status: String = CoordinationStatus.planned.rawValue,
+        autonomyLevel: String = AutonomyLevel.proposeActions.rawValue,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.projectID = projectID
+        self.title = title
+        self.goalDescription = goalDescription
+        self.status = status
+        self.autonomyLevel = autonomyLevel
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class AutonomyPlanRecord {
+    var identifier: String = ""
+    var goalID: String?
+    var summary: String = ""
+    var taskIDsJSON: String = "[]"
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        goalID: String? = nil,
+        summary: String,
+        taskIDsJSON: String = "[]",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.goalID = goalID
+        self.summary = summary
+        self.taskIDsJSON = taskIDsJSON
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class AutonomyTaskRecord {
+    var identifier: String = ""
+    var goalID: String?
+    var parentTaskID: String?
+    var title: String = ""
+    var detail: String = ""
+    var status: String = CoordinationStatus.planned.rawValue
+    var mode: String = AgentExecutionMode.planOnly.rawValue
+    var assignedProviderID: String?
+    var dependencyIDsJSON: String = "[]"
+    var validationCommand: String?
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        goalID: String? = nil,
+        parentTaskID: String? = nil,
+        title: String,
+        detail: String,
+        status: String = CoordinationStatus.planned.rawValue,
+        mode: String = AgentExecutionMode.planOnly.rawValue,
+        assignedProviderID: String? = nil,
+        dependencyIDsJSON: String = "[]",
+        validationCommand: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.goalID = goalID
+        self.parentTaskID = parentTaskID
+        self.title = title
+        self.detail = detail
+        self.status = status
+        self.mode = mode
+        self.assignedProviderID = assignedProviderID
+        self.dependencyIDsJSON = dependencyIDsJSON
+        self.validationCommand = validationCommand
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class AutonomyPolicyRecord {
+    var identifier: String = ""
+    var projectID: String?
+    var policyJSON: String = "{}"
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        projectID: String? = nil,
+        policyJSON: String = "{}",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.projectID = projectID
+        self.policyJSON = policyJSON
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class MachinePeerRecord {
+    var identifier: String = ""
+    var displayName: String = ""
+    var deviceFingerprintHash: String = ""
+    var lastSeenAt: Date?
+    var syncStatus: String = MachineSyncStatus.needsSnapshotVerification.rawValue
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        displayName: String,
+        deviceFingerprintHash: String,
+        lastSeenAt: Date? = nil,
+        syncStatus: String = MachineSyncStatus.needsSnapshotVerification.rawValue,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.displayName = displayName
+        self.deviceFingerprintHash = deviceFingerprintHash
+        self.lastSeenAt = lastSeenAt
+        self.syncStatus = syncStatus
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class AutonomyOperationRecord {
+    var identifier: String = ""
+    var entityID: String = ""
+    var entityType: String = ""
+    var operationKind: String = ""
+    var lamportClock: Int = 0
+    var machineID: String = ""
+    var payloadJSON: String = "{}"
+    var createdAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        entityID: String,
+        entityType: String,
+        operationKind: String,
+        lamportClock: Int = 0,
+        machineID: String,
+        payloadJSON: String = "{}",
+        createdAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.entityID = entityID
+        self.entityType = entityType
+        self.operationKind = operationKind
+        self.lamportClock = lamportClock
+        self.machineID = machineID
+        self.payloadJSON = payloadJSON
+        self.createdAt = createdAt
+    }
+}
+
+@Model
+final class ConflictResolutionRecord {
+    var identifier: String = ""
+    var entityID: String = ""
+    var conflictKind: String = ""
+    var status: String = "open"
+    var localPayloadJSON: String = "{}"
+    var remotePayloadJSON: String = "{}"
+    var resolutionJSON: String = "{}"
+    var createdAt: Date = Date()
+    var resolvedAt: Date?
+
+    init(
+        identifier: String = UUID().uuidString,
+        entityID: String,
+        conflictKind: String,
+        status: String = "open",
+        localPayloadJSON: String = "{}",
+        remotePayloadJSON: String = "{}",
+        resolutionJSON: String = "{}",
+        createdAt: Date = Date(),
+        resolvedAt: Date? = nil
+    ) {
+        self.identifier = identifier
+        self.entityID = entityID
+        self.conflictKind = conflictKind
+        self.status = status
+        self.localPayloadJSON = localPayloadJSON
+        self.remotePayloadJSON = remotePayloadJSON
+        self.resolutionJSON = resolutionJSON
+        self.createdAt = createdAt
+        self.resolvedAt = resolvedAt
+    }
+}
+
+@Model
+final class ValidationGateRecord {
+    var identifier: String = ""
+    var taskID: String?
+    var command: String = ""
+    var status: String = "notRun"
+    var outputExcerpt: String = ""
+    var startedAt: Date?
+    var endedAt: Date?
+
+    init(
+        identifier: String = UUID().uuidString,
+        taskID: String? = nil,
+        command: String,
+        status: String = "notRun",
+        outputExcerpt: String = "",
+        startedAt: Date? = nil,
+        endedAt: Date? = nil
+    ) {
+        self.identifier = identifier
+        self.taskID = taskID
+        self.command = command
+        self.status = status
+        self.outputExcerpt = outputExcerpt
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+    }
+}
+
+@Model
+final class AuditTrailRecord {
+    var identifier: String = ""
+    var goalID: String?
+    var taskID: String?
+    var eventKind: String = ""
+    var detail: String = ""
+    var createdAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        goalID: String? = nil,
+        taskID: String? = nil,
+        eventKind: String,
+        detail: String,
+        createdAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.goalID = goalID
+        self.taskID = taskID
+        self.eventKind = eventKind
+        self.detail = detail
+        self.createdAt = createdAt
     }
 }
 

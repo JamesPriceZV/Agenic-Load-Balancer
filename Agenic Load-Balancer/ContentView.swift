@@ -39,6 +39,7 @@ struct ContentView: View {
                 Section("Operate") {
                     sidebarItem(.dashboard, "Dashboard", "chart.xyaxis.line")
                     sidebarItem(.promptRouter, "Prompt Router", "point.3.connected.trianglepath.dotted")
+                    sidebarItem(.autonomy, "Autonomy", "cpu")
                     sidebarItem(.history, "History", "clock.arrow.circlepath")
                 }
 
@@ -112,6 +113,13 @@ struct ContentView: View {
                 outcomes: outcomes,
                 coordinationEvents: coordinationEvents
             )
+        case .autonomy:
+            AutonomyControlCenterView(
+                projects: projects,
+                draftPlan: { request in
+                    try await AppServices.autonomyManager.draftPlan(request: request)
+                }
+            )
         case .providers:
             ProviderSetupView(providers: providers)
         case .projects:
@@ -164,6 +172,7 @@ struct ContentView: View {
 private enum ConsoleSection: String, CaseIterable, Identifiable, Hashable {
     case dashboard
     case promptRouter
+    case autonomy
     case providers
     case projects
     case history
