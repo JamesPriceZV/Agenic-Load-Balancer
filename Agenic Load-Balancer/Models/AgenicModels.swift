@@ -87,7 +87,7 @@ enum RunStatus: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
-enum AccuracyRating: String, CaseIterable, Identifiable, Sendable {
+enum AccuracyRating: String, CaseIterable, Identifiable, Sendable, Codable, Hashable {
     case unrated
     case correct
     case minorFixNeeded
@@ -396,6 +396,21 @@ final class RunOutcomeRecord {
     /// Phase 6: commit hash when this run produced a git checkpoint.
     /// Optional + additive, so existing CloudKit-synced records remain valid.
     var commitSHA: String?
+    /// Phase 7.2: structured outcome classification produced by Apple
+    /// Foundation Models from the captured stdout/stderr buffer of a
+    /// successful run. All fields are optional / additive with safe
+    /// defaults so existing CloudKit-synced records remain valid.
+    var aiOneLineDescription: String?
+    var aiTestsPassed: Int?
+    var aiTestsFailed: Int?
+    /// JSON-encoded `[String]` of files the AI summarizer believes the run
+    /// touched. Defaults to `"[]"` so the property is non-optional and
+    /// CloudKit-compatible.
+    var aiFilesChangedJSON: String = "[]"
+    /// `AccuracyRating.rawValue` the AI picked. Distinct from the manual
+    /// `accuracyRating` field so user input is never overwritten.
+    var aiSuggestedAccuracyRating: String?
+    var aiSummaryGeneratedAt: Date?
 
     init(
         identifier: String = UUID().uuidString,
@@ -410,7 +425,13 @@ final class RunOutcomeRecord {
         startedAt: Date = Date(),
         endedAt: Date? = nil,
         durationSeconds: Double = 0,
-        commitSHA: String? = nil
+        commitSHA: String? = nil,
+        aiOneLineDescription: String? = nil,
+        aiTestsPassed: Int? = nil,
+        aiTestsFailed: Int? = nil,
+        aiFilesChangedJSON: String = "[]",
+        aiSuggestedAccuracyRating: String? = nil,
+        aiSummaryGeneratedAt: Date? = nil
     ) {
         self.identifier = identifier
         self.runID = runID
@@ -425,6 +446,51 @@ final class RunOutcomeRecord {
         self.endedAt = endedAt
         self.durationSeconds = durationSeconds
         self.commitSHA = commitSHA
+        self.aiOneLineDescription = aiOneLineDescription
+        self.aiTestsPassed = aiTestsPassed
+        self.aiTestsFailed = aiTestsFailed
+        self.aiFilesChangedJSON = aiFilesChangedJSON
+        self.aiSuggestedAccuracyRating = aiSuggestedAccuracyRating
+        self.aiSummaryGeneratedAt = aiSummaryGeneratedAt
+    }
+}
+
+extension RunOutcomeRecord {
+    /// Phase 7.2: hydrate the AI-summary fields from a `RunSummary`. The
+    /// manual `accuracyRating` is intentionally left untouched so the
+    /// user's explicit rating wins over the model's suggestion.
+    @MainActor
+    func applyRunSummary(_ summary: RunSummary, generatedAt: Date = Date()) {
+        aiOneLineDescription = summary.oneLineDescription
+        aiTestsPassed = summary.testsPassed
+        aiTestsFailed = summary.testsFailed
+        aiFilesChangedJSON = summary.filesChangedJSON
+        aiSuggestedAccuracyRating = summary.suggestedAccuracyRating.rawValue
+        aiSummaryGeneratedAt = generatedAt
+    }
+
+    /// Decoded view over the JSON-encoded `aiFilesChangedJSON` storage.
+    /// Returns `[]` when the field is missing or malformed.
+    @MainActor
+    var aiFilesChanged: [String] {
+        RunSummary.decodeFilesChanged(aiFilesChangedJSON)
+    }
+
+    /// Reconstruct a `RunSummary` from the persisted fields, returning
+    /// `nil` when the record has not been summarised yet (i.e. no
+    /// `aiSummaryGeneratedAt`). Used by the UI to render the AI panel.
+    @MainActor
+    var aiRunSummary: RunSummary? {
+        guard aiSummaryGeneratedAt != nil else { return nil }
+        let rating = aiSuggestedAccuracyRating
+            .flatMap(AccuracyRating.init(rawValue:)) ?? .unrated
+        return RunSummary(
+            filesChanged: aiFilesChanged,
+            testsPassed: aiTestsPassed,
+            testsFailed: aiTestsFailed,
+            oneLineDescription: aiOneLineDescription ?? "",
+            suggestedAccuracyRating: rating
+        )
     }
 }
 

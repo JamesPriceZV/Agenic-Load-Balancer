@@ -843,6 +843,9 @@ private struct ApprovalSheetView: View {
 
     @ViewBuilder
     private var outcomeRating: some View {
+        if dispatcher.status == .succeeded {
+            aiSummaryPanel
+        }
         GlassPanel {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Rate outcome")
@@ -852,18 +855,134 @@ private struct ApprovalSheetView: View {
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                     ForEach(AccuracyRating.allCases) { rating in
-                        Button {
-                            dispatcher.rateOutcome(rating, in: modelContext)
-                        } label: {
-                            Text(rating.rawValue)
-                                .font(.caption)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
+                        AccuracyRatingButton(
+                            rating: rating,
+                            isAISuggested: rating == aiSuggestedRating,
+                            action: {
+                                dispatcher.rateOutcome(rating, in: modelContext)
+                            }
+                        )
+                    }
+                }
+                if aiSuggestedRating != nil {
+                    Label("Highlighted rating is the AI suggestion. Your manual selection always wins.", systemImage: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Phase 7.2: render the AI-generated outcome summary as a Liquid Glass
+    /// card. Reflects the four states of `RunDispatcher.AISummaryStatus`
+    /// (pending / succeeded / unavailable / failed) so the user always sees
+    /// what happened, never a silent UI.
+    @ViewBuilder
+    private var aiSummaryPanel: some View {
+        GlassPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Image(systemName: "sparkles")
+                        .symbolEffect(.breathe, isActive: dispatcher.aiSummaryStatus == .pending)
+                        .foregroundStyle(Color.accentColor)
+                    Text("Outcome summary")
+                        .font(.headline)
+                    Spacer()
+                    Text(aiSummaryBadgeLabel)
+                        .font(.caption)
+                        .foregroundStyle(aiSummaryBadgeColor)
+                }
+
+                switch dispatcher.aiSummaryStatus {
+                case .notRequested:
+                    Text("Awaiting summary request…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .pending:
+                    Text("Apple Foundation Models is reading the captured output…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .unavailable(let reason):
+                    Label(reason, systemImage: "wifi.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .failed(let reason):
+                    Label(reason, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                case .succeeded(let summary):
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(summary.oneLineDescription)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(spacing: 16) {
+                            if let passed = summary.testsPassed, let failed = summary.testsFailed {
+                                Label("\(passed) passed", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Label("\(failed) failed", systemImage: "xmark.octagon.fill")
+                                    .foregroundStyle(failed > 0 ? Color.red : Color.secondary)
+                            }
+                            Label("Suggested: \(summary.suggestedAccuracyRating.rawValue)", systemImage: "wand.and.stars")
+                                .foregroundStyle(Color.accentColor)
+                            Spacer()
                         }
-                        .buttonStyle(.bordered)
+                        .font(.caption)
+
+                        if !summary.filesChanged.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Files touched (\(summary.filesChanged.count))")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                ForEach(summary.filesChanged.prefix(8), id: \.self) { path in
+                                    Text(path)
+                                        .font(.caption.monospaced())
+                                        .textSelection(.enabled)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                if summary.filesChanged.count > 8 {
+                                    Text("…and \(summary.filesChanged.count - 8) more")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// Phase 7.2: read the suggested rating off the dispatcher status, or
+    /// nil when the model hasn't returned (yet) / declined.
+    private var aiSuggestedRating: AccuracyRating? {
+        if case let .succeeded(summary) = dispatcher.aiSummaryStatus {
+            return summary.suggestedAccuracyRating
+        }
+        return nil
+    }
+
+    /// Right-aligned status badge text shown in the AI summary card header.
+    private var aiSummaryBadgeLabel: String {
+        switch dispatcher.aiSummaryStatus {
+        case .notRequested: return "Idle"
+        case .pending: return "Generating"
+        case .unavailable: return "Unavailable"
+        case .failed: return "Error"
+        case .succeeded: return "Ready"
+        }
+    }
+
+    private var aiSummaryBadgeColor: Color {
+        switch dispatcher.aiSummaryStatus {
+        case .notRequested: return Color.secondary
+        case .pending: return Color.accentColor
+        case .unavailable: return Color.secondary
+        case .failed: return Color.orange
+        case .succeeded: return Color.green
         }
     }
 
@@ -958,6 +1077,35 @@ private struct ScoreBar: View {
                 .font(.caption.monospacedDigit())
                 .frame(width: 48, alignment: .trailing)
         }
+    }
+}
+
+/// Phase 7.2: per-rating button used inside the approval-sheet outcome
+/// rating grid. When `isAISuggested` is true the button picks up the
+/// accent tint and a sparkles glyph so the user can see at a glance which
+/// rating Apple Foundation Models picked, while the manual choice still
+/// wins on tap.
+private struct AccuracyRatingButton: View {
+    let rating: AccuracyRating
+    let isAISuggested: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(rating.rawValue)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+                if isAISuggested {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.bordered)
+        .tint(isAISuggested ? Color.accentColor : nil)
     }
 }
 
