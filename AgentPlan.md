@@ -2286,7 +2286,7 @@ git commit -m "Add autonomous project manager foundation"
 
 - [x] Phase 7.3 covers ranking agents, dispatch run drafts, provider probes, snapshots, AgentNotes reconciliation, and dashboard metric reads. Checkpointed in `30d3d9f`; focused command-bar tests and the full app unit-test bundle passed on May 20, 2026. Full-scheme validation is blocked by the UI-test runner timing out while enabling automation mode.
 - [x] Phase 7.4 replaces raw byte-truncated preflight with relevance-focused summary and adds AI-assisted merge proposals without ungated writes. Checkpointed in `9df9c6c`; focused AgentNotes intelligence tests passed and `build-for-testing` succeeded on May 20, 2026. Broader test runs later stalled inside Xcode before the test host appeared.
-- [ ] Phase 7.5 keeps deterministic routing canonical and applies on-device tie-breaks only to close scores.
+- [x] Phase 7.5 keeps deterministic routing canonical and applies on-device tie-breaks only to close scores. Checkpointed in `1b8a55d`; `build-for-testing` succeeded on May 20, 2026. Focused test execution is still blocked by Xcode test orchestration stalling before a visible `xctest` child appears.
 - [ ] Phase 7.6 defines autonomy as policy-governed goal planning, task dispatch, validation, checkpointing, cross-machine sync, and lossless conflict handling.
 - [ ] Every Foundation Models call has availability gating and a fallback.
 - [ ] Every mutating tool action requires explicit approval unless a future trusted policy explicitly permits it.
