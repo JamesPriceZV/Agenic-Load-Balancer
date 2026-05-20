@@ -168,6 +168,46 @@ struct RunPipelineTests {
         #expect(coordination.contains { $0.status == CoordinationStatus.conflict.rawValue })
     }
 
+    @Test func contextWindowFailureWithZeroExitIsRecordedAsFailedRun() async throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let runner = ScriptedAgentProcessRunner(steps: [
+            .stdout("Provider error: request exceeded the available context window."),
+            .finished(exitCode: 0),
+        ])
+        let dispatcher = Self.makeDispatcher(runner: runner)
+
+        dispatcher.dispatch(plan: Self.makePlan(), modelContext: context)
+        await dispatcher.awaitTermination()
+
+        #expect(dispatcher.status == .failed)
+        #expect(dispatcher.exitCode == 0)
+        #expect(dispatcher.lastError?.contains("context window") == true)
+
+        let outcome = try #require(try context.fetch(FetchDescriptor<RunOutcomeRecord>()).first)
+        #expect(outcome.status == RunStatus.failed.rawValue)
+        #expect(outcome.buildResult == "exit0")
+    }
+
+    @Test func nestedNonZeroExitCodeWithZeroProcessExitIsRecordedAsFailedRun() async throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let runner = ScriptedAgentProcessRunner(steps: [
+            .stdout(#"{"type":"tool_result","exit_code":2,"status":"completed"}"#),
+            .finished(exitCode: 0),
+        ])
+        let dispatcher = Self.makeDispatcher(runner: runner)
+
+        dispatcher.dispatch(plan: Self.makePlan(), modelContext: context)
+        await dispatcher.awaitTermination()
+
+        #expect(dispatcher.status == .failed)
+        #expect(dispatcher.lastError?.contains("exit code 2") == true)
+
+        let coordination = try context.fetch(FetchDescriptor<CoordinationEventRecord>())
+        #expect(coordination.contains { $0.status == CoordinationStatus.conflict.rawValue })
+    }
+
     @Test func malformedOutputStillCompletesAsSucceeded() async throws {
         let container = try Self.makeContainer()
         let context = ModelContext(container)

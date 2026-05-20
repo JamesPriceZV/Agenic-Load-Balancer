@@ -134,6 +134,7 @@ final class RunDispatcher {
     private(set) var completionTokens: Int = 0
     private(set) var checkpointStatus: CheckpointStatus = .notRequested
     private(set) var preflightExcerpt: String?
+    private(set) var currentPlan: RunPlan?
     /// Phase 7.2: live AI summary state, surfaced to the approval sheet.
     private(set) var aiSummaryStatus: AISummaryStatus = .notRequested
 
@@ -150,7 +151,6 @@ final class RunDispatcher {
     @ObservationIgnored private var activeOutcome: RunOutcomeRecord?
     @ObservationIgnored private var activeUsage: UsageLedgerEntry?
     @ObservationIgnored private var activeCoordination: CoordinationEventRecord?
-    @ObservationIgnored private var activePlan: RunPlan?
     @ObservationIgnored private var userCancelRequested: Bool = false
 
     init(
@@ -192,11 +192,11 @@ final class RunDispatcher {
         completionTokens = 0
         checkpointStatus = .notRequested
         preflightExcerpt = nil
+        currentPlan = nil
         aiSummaryStatus = .notRequested
         activeOutcome = nil
         activeUsage = nil
         activeCoordination = nil
-        activePlan = nil
         userCancelRequested = false
     }
 
@@ -217,7 +217,7 @@ final class RunDispatcher {
     ) {
         reset()
         status = .preparing
-        activePlan = plan
+        currentPlan = plan
         let preflightPromptText = agentNotesPreflightSummary?.promptInjectionText ?? agentNotesExcerpt
         preflightExcerpt = preflightPromptText
         appendSystem("Approved \(plan.providerName) for \(plan.mode.label).")
@@ -282,7 +282,14 @@ final class RunDispatcher {
                     if self.userCancelRequested || Task.isCancelled {
                         self.finalize(plan: plan, modelContext: modelContext, terminal: .cancelled, code: nil, errorMessage: "Run cancelled before completion.")
                     } else {
-                        self.finalize(plan: plan, modelContext: modelContext, terminal: .succeeded, code: self.exitCode, errorMessage: nil)
+                        let classification = self.terminalClassification(for: self.exitCode)
+                        self.finalize(
+                            plan: plan,
+                            modelContext: modelContext,
+                            terminal: classification.status,
+                            code: self.exitCode,
+                            errorMessage: classification.message
+                        )
                     }
                 }
             } catch is CancellationError {
@@ -518,10 +525,31 @@ final class RunDispatcher {
             ingestTokenSignals(in: line)
         case .finished(let code):
             exitCode = code
-            let terminal: LiveStatus = userCancelRequested ? .cancelled : (code == 0 ? .succeeded : .failed)
-            let message: String? = (terminal == .failed) ? "Process exited with code \(code)." : nil
-            finalize(plan: plan, modelContext: modelContext, terminal: terminal, code: code, errorMessage: message)
+            let classification = terminalClassification(for: code)
+            finalize(
+                plan: plan,
+                modelContext: modelContext,
+                terminal: classification.status,
+                code: code,
+                errorMessage: classification.message
+            )
         }
+    }
+
+    private func terminalClassification(for code: Int32?) -> (status: LiveStatus, message: String?) {
+        if userCancelRequested {
+            return (.cancelled, nil)
+        }
+
+        if let providerFailure = ProviderFailureClassifier.failureMessage(in: logs) {
+            return (.failed, providerFailure)
+        }
+
+        if let code, code != 0 {
+            return (.failed, "Process exited with code \(code).")
+        }
+
+        return (.succeeded, nil)
     }
 
     private func appendLine(_ line: LogLine) {
@@ -816,6 +844,78 @@ enum TokenUsageParser {
             }
         }
         return 0
+    }
+}
+
+enum ProviderFailureClassifier {
+    static func failureMessage(in lines: [RunDispatcher.LogLine]) -> String? {
+        let text = lines
+            .filter { $0.kind == .stdout || $0.kind == .stderr }
+            .map(\.text)
+            .joined(separator: "\n")
+        guard !text.isEmpty else { return nil }
+
+        let lowercased = text.lowercased()
+        if containsContextLimitFailure(lowercased) {
+            return "Provider reported that the request exceeded the available context window."
+        }
+        if containsQuotaFailure(lowercased) {
+            return "Provider reported a quota or rate-limit failure."
+        }
+        if containsStructuredFailureStatus(lowercased) {
+            return "Provider reported a failed run in its structured output."
+        }
+        if let nestedExitCode = firstNonZeroNestedExitCode(in: text) {
+            return "Provider reported an inner command failure with exit code \(nestedExitCode)."
+        }
+        return nil
+    }
+
+    private static func containsContextLimitFailure(_ text: String) -> Bool {
+        let markers = [
+            "context window",
+            "context length",
+            "context_length_exceeded",
+            "maximum context",
+            "max context",
+            "too many tokens",
+            "token limit",
+            "tokens exceeded",
+        ]
+        guard markers.contains(where: { text.contains($0) }) else { return false }
+        return text.contains("exceed") ||
+            text.contains("too many") ||
+            text.contains("maximum") ||
+            text.contains("limit")
+    }
+
+    private static func containsQuotaFailure(_ text: String) -> Bool {
+        (text.contains("quota") || text.contains("rate limit") || text.contains("rate_limit"))
+            && (text.contains("exceed") || text.contains("exhaust") || text.contains("429"))
+    }
+
+    private static func containsStructuredFailureStatus(_ text: String) -> Bool {
+        let compact = text.replacingOccurrences(of: " ", with: "")
+        return compact.contains(#""status":"failed""#) ||
+            compact.contains(#""status":"error""#) ||
+            compact.contains(#""status":"cancelled""#)
+    }
+
+    private static func firstNonZeroNestedExitCode(in text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #""exit_code"\s*:\s*(-?\d+)"#) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, options: [], range: range)
+        for match in matches where match.numberOfRanges >= 2 {
+            guard let captureRange = Range(match.range(at: 1), in: text),
+                  let value = Int(text[captureRange]),
+                  value != 0 else {
+                continue
+            }
+            return value
+        }
+        return nil
     }
 }
 

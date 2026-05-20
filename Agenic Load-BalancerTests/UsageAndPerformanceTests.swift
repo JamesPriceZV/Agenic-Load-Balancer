@@ -264,4 +264,23 @@ struct UsageAndPerformanceTests {
         // Six metrics × one provider = six cells.
         #expect(cells.count == 6)
     }
+
+    @Test func dashboardProviderFilterKeepsOnlyConfiguredProviders() throws {
+        let configured = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
+        configured.installedState = ProviderAvailabilityState.available.rawValue
+
+        let unconfigured = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[1])
+        unconfigured.installedState = ProviderAvailabilityState.unknown.rawValue
+        unconfigured.authState = ProviderAuthState.unknown.rawValue
+        unconfigured.lastHealthCheckAt = nil
+
+        let disabled = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[2])
+        disabled.installedState = ProviderAvailabilityState.available.rawValue
+        disabled.isEnabled = false
+
+        let visible = [configured, unconfigured, disabled]
+            .filter(\.isConfiguredForDashboard)
+
+        #expect(visible.map(\.identifier) == [configured.identifier])
+    }
 }

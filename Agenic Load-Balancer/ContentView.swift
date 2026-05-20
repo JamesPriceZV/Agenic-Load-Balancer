@@ -9,6 +9,7 @@ import AppKit
 import Charts
 import Combine
 import CoreData
+import Observation
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -25,6 +26,9 @@ struct ContentView: View {
 
     @State private var selectedSection: ConsoleSection? = .dashboard
     @State private var showingCommandBar = false
+    @State private var showingSettingsSheet = false
+    @State private var settingsInitialTab: AgenicSettingsTab = .storage
+    @State private var promptRunSessions: [PromptRunSession] = []
     @State private var cloudStatus = CloudSyncStatusSnapshot(
         containerIdentifier: AgenicDataModel.cloudKitContainerIdentifier,
         lastLocalSave: nil,
@@ -53,8 +57,8 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
             detailView
-                .frame(minWidth: 940, minHeight: 660)
-                .background(.background)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 640)
+                .background(AgenicTheme.detailBackground)
         }
         .task {
             AppBootstrapper.ensureSeedData(in: modelContext)
@@ -78,9 +82,18 @@ struct ContentView: View {
                 Button {
                     Task {
                         await refreshCloudStatus()
+                        settingsInitialTab = .storage
+                        showingSettingsSheet = true
                     }
                 } label: {
-                    Label("Sync Status", systemImage: "arrow.triangle.2.circlepath.icloud")
+                    Label("iCloud Sync", systemImage: "arrow.triangle.2.circlepath.icloud")
+                }
+
+                Button {
+                    settingsInitialTab = .generation
+                    showingSettingsSheet = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
                 }
             }
         }
@@ -92,6 +105,9 @@ struct ContentView: View {
                 outcomes: outcomes,
                 coordinationEvents: coordinationEvents
             )
+        }
+        .sheet(isPresented: $showingSettingsSheet) {
+            SettingsView(initialTab: settingsInitialTab)
         }
     }
 
@@ -111,7 +127,8 @@ struct ContentView: View {
                 providers: providers,
                 usageEntries: usageEntries,
                 outcomes: outcomes,
-                coordinationEvents: coordinationEvents
+                coordinationEvents: coordinationEvents,
+                runSessions: $promptRunSessions
             )
         case .autonomy:
             AutonomyControlCenterView(
@@ -186,31 +203,123 @@ private enum ConsoleSection: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
+@MainActor
+@Observable
+final class PromptRunSession: Identifiable {
+    let id: UUID
+    let plan: RunPlan
+    let dispatcher: RunDispatcher
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        plan: RunPlan,
+        dispatcher: RunDispatcher = RunDispatcher(),
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.plan = plan
+        self.dispatcher = dispatcher
+        self.createdAt = createdAt
+    }
+}
+
+enum AgenicTheme {
+    static let cornerRadius: CGFloat = 8
+
+    static var detailBackground: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(nsColor: .windowBackgroundColor),
+                Color.teal.opacity(0.035),
+                Color.indigo.opacity(0.03),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    static var glassTint: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.07),
+                Color.teal.opacity(0.045),
+                Color.indigo.opacity(0.035),
+                Color.black.opacity(0.035),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    static var settingsSidebarTint: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.08),
+                Color.gray.opacity(0.12),
+                Color.teal.opacity(0.04),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    static func accentColor(for key: String) -> Color {
+        switch key {
+        case _ where key.localizedCaseInsensitiveContains("cloud"): return .teal
+        case _ where key.localizedCaseInsensitiveContains("cost"): return .green
+        case _ where key.localizedCaseInsensitiveContains("run"): return .orange
+        case _ where key.localizedCaseInsensitiveContains("provider"): return .blue
+        case _ where key.localizedCaseInsensitiveContains("accuracy"): return .cyan
+        case _ where key.localizedCaseInsensitiveContains("latency"): return .purple
+        case _ where key.localizedCaseInsensitiveContains("success"): return .green
+        case _ where key.localizedCaseInsensitiveContains("limit"): return .mint
+        default: return .accentColor
+        }
+    }
+
+    static func metricGradient(for color: Color) -> LinearGradient {
+        LinearGradient(
+            colors: [
+                color.opacity(0.34),
+                color.opacity(0.16),
+                Color.white.opacity(0.045),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
 private struct DashboardView: View {
     let providers: [AgentProviderProfile]
     let usageEntries: [UsageLedgerEntry]
     let outcomes: [RunOutcomeRecord]
     let cloudStatus: CloudSyncStatusSnapshot
 
+    private var configuredProviders: [AgentProviderProfile] {
+        providers.filter(\.isConfiguredForDashboard)
+    }
+
     private var usage: [UsageSnapshot] {
         UsageSnapshotBuilder.build(
             from: usageEntries,
             outcomes: outcomes,
-            providers: providers
+            providers: configuredProviders
         )
     }
 
     private var accuracy: [AccuracySnapshot] {
-        AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+        AccuracySnapshotBuilder.build(from: outcomes, providers: configuredProviders)
     }
 
     private var heatmapCells: [DashboardHeatmapCell] {
-        DashboardMetricFactory.heatmapCells(providers: providers, usage: usage, accuracy: accuracy)
+        DashboardMetricFactory.heatmapCells(providers: configuredProviders, usage: usage, accuracy: accuracy)
     }
 
     private var performanceSummaries: [ProviderPerformanceSummary] {
         PerformanceHistoryBuilder.build(
-            providers: providers,
+            providers: configuredProviders,
             outcomes: outcomes,
             usageEntries: usageEntries
         )
@@ -222,8 +331,8 @@ private struct DashboardView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                HStack(alignment: .top, spacing: 12) {
-                    KPIBlock(title: "Providers", value: "\(providers.count)", detail: "\(availableProviderCount) locally available")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], alignment: .leading, spacing: 12) {
+                    KPIBlock(title: "Providers", value: "\(configuredProviders.count)", detail: "\(availableProviderCount) locally available")
                     KPIBlock(title: "Runs", value: "\(outcomes.count)", detail: "\(ratedRunCount) rated for accuracy")
                     KPIBlock(title: "Estimated Cost", value: totalCost.formatted(.currency(code: "USD")), detail: "Observed today")
                     KPIBlock(title: "CloudKit", value: cloudStatus.status.capitalized, detail: cloudStatus.containerIdentifier)
@@ -233,13 +342,22 @@ private struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Model Use Heatmap")
                             .font(.headline)
-                        Text("Six metrics per provider — availability, limit headroom, accuracy, latency, success rate, and observed cost — computed from SwiftData and syncable through private CloudKit metadata.")
+                        Text("Configured providers only — availability, limit headroom, accuracy, latency, success rate, and observed cost — computed from SwiftData and syncable through private CloudKit metadata.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 110), spacing: 8), count: 6), spacing: 8) {
-                            ForEach(heatmapCells) { cell in
-                                HeatmapCell(cell: cell)
+                        if heatmapCells.isEmpty {
+                            ContentUnavailableView(
+                                "No configured providers",
+                                systemImage: "externaldrive.badge.checkmark",
+                                description: Text("Configure or successfully probe a provider before it appears in the heatmap.")
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                        } else {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                                ForEach(heatmapCells) { cell in
+                                    HeatmapCell(cell: cell)
+                                }
                             }
                         }
                     }
@@ -255,7 +373,7 @@ private struct DashboardView: View {
 
                         ForEach(usage) { snapshot in
                             QuotaRow(
-                                providerName: providers.first { $0.identifier == snapshot.providerID }?.displayName ?? snapshot.providerID,
+                                providerName: configuredProviders.first { $0.identifier == snapshot.providerID }?.displayName ?? snapshot.providerID,
                                 snapshot: snapshot
                             )
                         }
@@ -267,7 +385,7 @@ private struct DashboardView: View {
                         Text("Provider Accuracy")
                             .font(.headline)
                         ForEach(accuracy) { snapshot in
-                            let providerName = providers.first { $0.identifier == snapshot.providerID }?.displayName ?? snapshot.providerID
+                            let providerName = configuredProviders.first { $0.identifier == snapshot.providerID }?.displayName ?? snapshot.providerID
                             HStack {
                                 Text(providerName)
                                     .frame(width: 180, alignment: .leading)
@@ -302,7 +420,7 @@ private struct DashboardView: View {
     }
 
     private var availableProviderCount: Int {
-        providers.filter { $0.installedState == ProviderAvailabilityState.available.rawValue }.count
+        configuredProviders.filter { $0.installedState == ProviderAvailabilityState.available.rawValue }.count
     }
 
     private var ratedRunCount: Int {
@@ -322,6 +440,7 @@ private struct PromptRouterView: View {
     let usageEntries: [UsageLedgerEntry]
     let outcomes: [RunOutcomeRecord]
     let coordinationEvents: [CoordinationEventRecord]
+    @Binding var runSessions: [PromptRunSession]
 
     @State private var prompt = ""
     @State private var selectedProjectID: String?
@@ -330,133 +449,197 @@ private struct PromptRouterView: View {
     @State private var selectedScoreID: UUID?
     @State private var commandPreview = "Rank agents to preview the approved command."
     @State private var approvalStatus = ""
-    @State private var dispatcher = RunDispatcher()
-    @State private var isApprovalSheetPresented = false
+    @State private var presentedRunSession: PromptRunSession?
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Prompt Router")
-                    .font(.largeTitle.weight(.semibold))
-
-                GlassPanel {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Picker("Project", selection: $selectedProjectID) {
-                                Text("No Project").tag(String?.none)
-                                ForEach(projects, id: \.identifier) { project in
-                                    Text(project.name).tag(Optional(project.identifier))
-                                }
-                            }
-                            .frame(maxWidth: 360)
-
-                            Picker("Mode", selection: $selectedMode) {
-                                ForEach(AgentExecutionMode.allCases) { mode in
-                                    Text(mode.label).tag(mode)
-                                }
-                            }
-                            .frame(maxWidth: 260)
-                        }
-
-                        TextEditor(text: $prompt)
-                            .font(.body.monospaced())
-                            .frame(minHeight: 220)
-                            .padding(8)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(.separator.opacity(0.35), lineWidth: 1)
-                            )
-
-                        HStack {
-                            Button {
-                                rankRoutes()
-                            } label: {
-                                Label("Rank Agents", systemImage: "list.bullet.rectangle.portrait")
-                            }
-                            .keyboardShortcut(.return, modifiers: [.command])
-                            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                            Button {
-                                presentApprovalSheet()
-                            } label: {
-                                Label("Review & Run…", systemImage: "checkmark.seal")
-                            }
-                            .keyboardShortcut(.return, modifiers: [.command, .shift])
-                            .disabled(selectedScore == nil)
-
-                            Text(approvalStatus)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+        GeometryReader { proxy in
+            if proxy.size.width < 1_040 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        promptColumn
+                        routingColumn
                     }
+                    .padding(24)
                 }
-
-                GlassPanel {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Approved Command Preview")
-                            .font(.headline)
-                        Text(commandPreview)
-                            .font(.callout.monospaced())
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(24)
-            .frame(minWidth: 560)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Routing Rationale")
-                        .font(.title2.weight(.semibold))
-
-                    if recommendation.ranked.isEmpty {
-                        ContentUnavailableView(
-                            "No routes ranked",
-                            systemImage: "point.3.connected.trianglepath.dotted",
-                            description: Text("Enter a prompt and rank agents to see score breakdowns.")
-                        )
-                    } else {
-                        ForEach(recommendation.ranked) { score in
-                            RouteScoreRow(
-                                score: score,
-                                tieBreak: recommendation.tieBreak,
-                                isSelected: selectedScoreID == score.id
-                            ) {
-                                selectedScoreID = score.id
-                                buildCommandPreview(for: score)
-                            }
-                        }
-                    }
-                }
-                .padding(20)
-            }
-            .frame(minWidth: 380, idealWidth: 460)
-        }
-        .sheet(isPresented: $isApprovalSheetPresented) {
-            if let plan = currentRunPlan() {
-                ApprovalSheetView(
-                    plan: plan,
-                    dispatcher: dispatcher,
-                    onClose: {
-                        isApprovalSheetPresented = false
-                        approvalStatus = lastDispatcherStatusText()
-                    }
-                )
             } else {
+                HStack(spacing: 0) {
+                    ScrollView {
+                        promptColumn
+                            .padding(24)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minWidth: 0, maxWidth: .infinity)
+
+                    Divider()
+
+                    ScrollView {
+                        routingColumn
+                            .padding(20)
+                    }
+                    .frame(width: min(max(proxy.size.width * 0.36, 360), 520))
+                }
+            }
+        }
+        .sheet(item: $presentedRunSession) { session in
+            ApprovalSheetView(
+                plan: session.plan,
+                dispatcher: session.dispatcher,
+                onClose: {
+                    close(session: session)
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var promptColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Prompt Router")
+                .font(.largeTitle.weight(.semibold))
+
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) {
+                            projectPicker
+                            modePicker
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            projectPicker
+                            modePicker
+                        }
+                    }
+
+                    TextEditor(text: $prompt)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 220)
+                        .padding(8)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.separator.opacity(0.35), lineWidth: 1)
+                        )
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            actionButtons
+                            statusText
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            actionButtons
+                            statusText
+                        }
+                    }
+                }
+            }
+
+            liveRunDock
+
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Approved Command Preview")
+                        .font(.headline)
+                    Text(commandPreview)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+
+    private var projectPicker: some View {
+        Picker("Project", selection: $selectedProjectID) {
+            Text("No Project").tag(String?.none)
+            ForEach(projects, id: \.identifier) { project in
+                Text(project.name).tag(Optional(project.identifier))
+            }
+        }
+        .frame(maxWidth: 360)
+    }
+
+    private var modePicker: some View {
+        Picker("Mode", selection: $selectedMode) {
+            ForEach(AgentExecutionMode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .frame(maxWidth: 260)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                rankRoutes()
+            } label: {
+                Label("Rank Agents", systemImage: "list.bullet.rectangle.portrait")
+            }
+            .keyboardShortcut(.return, modifiers: [.command])
+            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button {
+                presentApprovalSheet()
+            } label: {
+                Label("Review & Run…", systemImage: "checkmark.seal")
+            }
+            .keyboardShortcut(.return, modifiers: [.command, .shift])
+            .disabled(selectedScore == nil)
+        }
+    }
+
+    private var statusText: some View {
+        Text(approvalStatus)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var liveRunDock: some View {
+        if !runSessions.isEmpty {
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Live Runs")
+                        .font(.headline)
+                    ForEach(runSessions) { session in
+                        PromptRunDockRow(
+                            session: session,
+                            onShow: { presentedRunSession = session },
+                            onCancel: { session.dispatcher.cancel() },
+                            onClear: { clear(session: session) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var routingColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Routing Rationale")
+                .font(.title2.weight(.semibold))
+
+            if recommendation.ranked.isEmpty {
                 ContentUnavailableView(
-                    "Select a route",
+                    "No routes ranked",
                     systemImage: "point.3.connected.trianglepath.dotted",
-                    description: Text("Rank agents and pick a route before reviewing.")
+                    description: Text("Enter a prompt and rank agents to see score breakdowns.")
                 )
-                .frame(width: 480, height: 240)
+                .frame(maxWidth: .infinity, minHeight: 240)
+            } else {
+                ForEach(recommendation.ranked) { score in
+                    RouteScoreRow(
+                        score: score,
+                        tieBreak: recommendation.tieBreak,
+                        isSelected: selectedScoreID == score.id
+                    ) {
+                        selectedScoreID = score.id
+                        buildCommandPreview(for: score)
+                    }
+                }
             }
         }
     }
@@ -541,12 +724,29 @@ private struct PromptRouterView: View {
     }
 
     private func presentApprovalSheet() {
-        guard currentRunPlan() != nil else { return }
-        dispatcher.reset()
-        isApprovalSheetPresented = true
+        guard let plan = currentRunPlan() else { return }
+        let session = PromptRunSession(plan: plan)
+        runSessions.insert(session, at: 0)
+        presentedRunSession = session
+        approvalStatus = "Prepared \(plan.providerName) run."
     }
 
-    private func lastDispatcherStatusText() -> String {
+    private func close(session: PromptRunSession) {
+        presentedRunSession = nil
+        approvalStatus = statusText(for: session.dispatcher)
+        if session.dispatcher.status == .idle && session.dispatcher.activeRunID == nil {
+            clear(session: session)
+        }
+    }
+
+    private func clear(session: PromptRunSession) {
+        if session.dispatcher.status == .running || session.dispatcher.status == .preparing {
+            session.dispatcher.cancel()
+        }
+        runSessions.removeAll { $0.id == session.id }
+    }
+
+    private func statusText(for dispatcher: RunDispatcher) -> String {
         switch dispatcher.status {
         case .idle: return ""
         case .preparing: return "Preparing dispatch…"
@@ -564,6 +764,7 @@ struct ApprovalSheetView: View {
 
     let plan: RunPlan
     let dispatcher: RunDispatcher
+    let allowsConsoleHide: Bool
     let onClose: () -> Void
 
     @State private var elapsedSeconds: Double = 0
@@ -571,6 +772,18 @@ struct ApprovalSheetView: View {
     @State private var preflightLoaded: Bool = false
     @State private var preflightSummary: AgentNotesPreflightSummary?
     @State private var preflightStatusText: String?
+
+    init(
+        plan: RunPlan,
+        dispatcher: RunDispatcher,
+        allowsConsoleHide: Bool = true,
+        onClose: @escaping () -> Void
+    ) {
+        self.plan = plan
+        self.dispatcher = dispatcher
+        self.allowsConsoleHide = allowsConsoleHide
+        self.onClose = onClose
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -606,9 +819,12 @@ struct ApprovalSheetView: View {
         }
         .frame(minWidth: 720, idealWidth: 820, minHeight: 620, idealHeight: 720)
         .background(.regularMaterial)
-        .interactiveDismissDisabled(dispatcher.status == .preparing || dispatcher.status == .running)
+        .interactiveDismissDisabled(!allowsConsoleHide && (dispatcher.status == .preparing || dispatcher.status == .running))
         .task {
             await loadPreflightExcerpt()
+        }
+        .onDisappear {
+            onClose()
         }
         .onReceive(timerPublisher) { _ in
             if let started = dispatcher.startedAt {
@@ -1126,9 +1342,13 @@ struct ApprovalSheetView: View {
                 .buttonStyle(.bordered)
                 .tint(.red)
                 Spacer()
-                Text("Run in progress. Closing is disabled until it finishes or you cancel it.")
+                Text(allowsConsoleHide ? "Run continues if you hide this console." : "Run in progress.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if allowsConsoleHide {
+                    Button("Hide Console") { dismissSheet() }
+                        .buttonStyle(.borderedProminent)
+                }
             case .succeeded, .failed, .cancelled:
                 Spacer()
                 Button {
@@ -1145,10 +1365,6 @@ struct ApprovalSheetView: View {
     }
 
     private func dismissSheet() {
-        if dispatcher.status == .running || dispatcher.status == .preparing {
-            dispatcher.cancel()
-        }
-        onClose()
         dismiss()
     }
 
@@ -1266,6 +1482,7 @@ private struct LogLineView: View {
                 .textSelection(.enabled)
                 .foregroundStyle(textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
@@ -1299,6 +1516,89 @@ private struct LogLineView: View {
         line.kind == .stderr
         && line.text.contains(" WARN codex_core_")
         && line.text.contains("ignoring interface.")
+    }
+}
+
+private struct PromptRunDockRow: View {
+    let session: PromptRunSession
+    let onShow: () -> Void
+    let onCancel: () -> Void
+    let onClear: () -> Void
+
+    private var dispatcher: RunDispatcher { session.dispatcher }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                StatusPill(status: dispatcher.status)
+                Text(session.plan.providerName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(session.plan.mode.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Text(session.createdAt.formatted(date: .omitted, time: .shortened))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(detailText)
+                .font(.caption)
+                .foregroundStyle(dispatcher.status == .failed ? .red : .secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button {
+                    onShow()
+                } label: {
+                    Label("Console", systemImage: "terminal")
+                }
+                .buttonStyle(.bordered)
+
+                if dispatcher.status == .running || dispatcher.status == .preparing {
+                    Button(role: .destructive) {
+                        onCancel()
+                    } label: {
+                        Label("Cancel", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if dispatcher.status.isTerminal {
+                    Spacer()
+                    Button(role: .destructive) {
+                        onClear()
+                    } label: {
+                        Label("Clear", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+        .padding(10)
+        .background(.background.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator.opacity(0.24), lineWidth: 1)
+        )
+    }
+
+    private var detailText: String {
+        if let error = dispatcher.lastError {
+            return error
+        }
+        if let last = dispatcher.logs.last(where: { !$0.text.isEmpty }) {
+            return last.text
+        }
+        if !dispatcher.displayedCommand.isEmpty {
+            return dispatcher.displayedCommand
+        }
+        let trimmed = session.plan.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= 180 { return trimmed }
+        return String(trimmed.prefix(180)) + "…"
     }
 }
 
@@ -2140,28 +2440,248 @@ private extension ProviderSetupSheet.Step {
     }
 }
 
+private struct ProjectEditorTarget: Identifiable {
+    let id: String
+    let project: AgentProject
+
+    init(project: AgentProject) {
+        self.id = project.identifier
+        self.project = project
+    }
+}
+
+private struct ProjectRow: View {
+    let project: AgentProject
+    let regenerateAgentNotes: () -> Void
+    let edit: () -> Void
+    let delete: () -> Void
+    let syncChanged: @MainActor @Sendable (Bool) -> Void
+
+    var body: some View {
+        GlassPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(project.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    ProviderStatusBadge(title: project.promptExcerptSyncEnabled ? "Prompt excerpts sync" : "Prompt excerpts local")
+                }
+
+                Text(project.rootPath ?? "No folder selected")
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                projectControls
+            }
+        }
+    }
+
+    private var projectControls: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                regenerateButton
+                settingsButton
+                promptExcerptToggle
+
+                Spacer(minLength: 8)
+                deleteButton
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    regenerateButton
+                    settingsButton
+                    deleteButton
+                }
+                promptExcerptToggle
+            }
+        }
+    }
+
+    private var regenerateButton: some View {
+        Button {
+            regenerateAgentNotes()
+        } label: {
+            Label("Regenerate AgentNotes", systemImage: "arrow.clockwise")
+        }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            edit()
+        } label: {
+            Label("Settings", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    private var promptExcerptToggle: some View {
+        Toggle("Sync prompt excerpts", isOn: Binding(
+                get: { project.promptExcerptSyncEnabled },
+                set: { newValue in syncChanged(newValue) }
+        ))
+        .toggleStyle(.switch)
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            delete()
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+private struct ProjectSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let project: AgentProject
+    let onSave: (String, String?, Data?, Bool) -> Void
+    let onDelete: () -> Void
+
+    @State private var name: String
+    @State private var rootPath: String?
+    @State private var bookmarkData: Data?
+    @State private var promptExcerptSyncEnabled: Bool
+
+    init(
+        project: AgentProject,
+        onSave: @escaping (String, String?, Data?, Bool) -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.project = project
+        self.onSave = onSave
+        self.onDelete = onDelete
+        _name = State(initialValue: project.name)
+        _rootPath = State(initialValue: project.rootPath)
+        _bookmarkData = State(initialValue: project.bookmarkData)
+        _promptExcerptSyncEnabled = State(initialValue: project.promptExcerptSyncEnabled)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Project Settings")
+                    .font(.title2.weight(.semibold))
+                Text(project.name)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    GlassPanel {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Workspace")
+                                .font(.headline)
+                            TextField("Name", text: $name)
+                            LabeledContent("Folder") {
+                                HStack(spacing: 8) {
+                                    Text(rootPath ?? "No folder selected")
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Button {
+                                        chooseFolder()
+                                    } label: {
+                                        Label("Choose", systemImage: "folder")
+                                    }
+                                }
+                            }
+                            LabeledContent("AgentNotes", value: project.agentNotesRelativePath)
+                        }
+                    }
+
+                    GlassPanel {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Recall & Sync")
+                                .font(.headline)
+                            Toggle("Sync prompt excerpts for this project", isOn: $promptExcerptSyncEnabled)
+                                .toggleStyle(.switch)
+                            Text("Project name, folder bookmark, AgentNotes metadata, and recall settings are stored in SwiftData and backed by the app's private CloudKit container.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Button(role: .destructive) {
+                    onDelete()
+                    dismiss()
+                } label: {
+                    Label("Delete Project", systemImage: "trash")
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button {
+                    onSave(name, rootPath, bookmarkData, promptExcerptSyncEnabled)
+                    dismiss()
+                } label: {
+                    Label("Save", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(24)
+        }
+        .frame(minWidth: 600, idealWidth: 680, minHeight: 460, idealHeight: 560)
+        .background(.regularMaterial)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select"
+        if let rootPath {
+            panel.directoryURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        rootPath = url.path
+        bookmarkData = try? url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+    }
+}
+
 private struct ProjectsView: View {
     @Environment(\.modelContext) private var modelContext
     let projects: [AgentProject]
     let coordinationEvents: [CoordinationEventRecord]
 
     @State private var statusText = "Add local workspaces to enable AgentNotes coordination and per-project routing history."
+    @State private var editingProject: ProjectEditorTarget?
+    @State private var pendingDeleteProject: ProjectEditorTarget?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Projects")
-                            .font(.largeTitle.weight(.semibold))
-                        Text(statusText)
-                            .foregroundStyle(.secondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
+                        headerText
+                        Spacer(minLength: 16)
+                        addWorkspaceButton
                     }
-                    Spacer()
-                    Button {
-                        addProject()
-                    } label: {
-                        Label("Add Workspace", systemImage: "folder.badge.plus")
+                    VStack(alignment: .leading, spacing: 10) {
+                        headerText
+                        addWorkspaceButton
                     }
                 }
 
@@ -2173,41 +2693,84 @@ private struct ProjectsView: View {
                     )
                 } else {
                     ForEach(projects, id: \.identifier) { project in
-                        GlassPanel {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(project.name)
-                                        .font(.headline)
-                                    Spacer()
-                                    Text(project.promptExcerptSyncEnabled ? "Prompt excerpts sync" : "Prompt excerpts local")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(project.rootPath ?? "No folder selected")
-                                    .font(.callout.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                                HStack {
-                                    Button("Regenerate AgentNotes") {
-                                        regenerateAgentNotes(for: project)
-                                    }
-                                    Toggle("Sync prompt excerpts", isOn: Binding(
-                                        get: { project.promptExcerptSyncEnabled },
-                                        set: { newValue in
-                                            project.promptExcerptSyncEnabled = newValue
-                                            project.updatedAt = Date()
-                                            try? modelContext.save()
-                                        }
-                                    ))
-                                    .toggleStyle(.switch)
+                        ProjectRow(
+                            project: project,
+                            regenerateAgentNotes: { regenerateAgentNotes(for: project) },
+                            edit: { editingProject = ProjectEditorTarget(project: project) },
+                            delete: { pendingDeleteProject = ProjectEditorTarget(project: project) },
+                            syncChanged: { newValue in
+                                project.promptExcerptSyncEnabled = newValue
+                                project.updatedAt = Date()
+                                do {
+                                    try modelContext.save()
+                                    Task { await AppServices.cloudSync.recordLocalSave() }
+                                } catch {
+                                    statusText = "Project setting save failed: \(error.localizedDescription)"
                                 }
                             }
-                        }
+                        )
                     }
                 }
             }
             .padding(24)
         }
+        .sheet(item: $editingProject) { target in
+            ProjectSettingsSheet(
+                project: target.project,
+                onSave: { name, rootPath, bookmarkData, promptSync in
+                    saveProjectSettings(
+                        target.project,
+                        name: name,
+                        rootPath: rootPath,
+                        bookmarkData: bookmarkData,
+                        promptExcerptSyncEnabled: promptSync
+                    )
+                },
+                onDelete: {
+                    editingProject = nil
+                    pendingDeleteProject = target
+                }
+            )
+        }
+        .confirmationDialog(
+            "Delete project?",
+            isPresented: Binding(
+                get: { pendingDeleteProject != nil },
+                set: { if !$0 { pendingDeleteProject = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Project", role: .destructive) {
+                if let target = pendingDeleteProject {
+                    deleteProject(target.project)
+                }
+                pendingDeleteProject = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteProject = nil
+            }
+        } message: {
+            Text("This removes the project from Agenic Load-Balancer. Run history and coordination records remain in the repository ledger.")
+        }
+    }
+
+    private var headerText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Projects")
+                .font(.largeTitle.weight(.semibold))
+            Text(statusText)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var addWorkspaceButton: some View {
+        Button {
+            addProject()
+        } label: {
+            Label("Add Workspace", systemImage: "folder.badge.plus")
+        }
+        .fixedSize()
     }
 
     private func addProject() {
@@ -2228,6 +2791,7 @@ private struct ProjectsView: View {
 
         do {
             try modelContext.save()
+            Task { await AppServices.cloudSync.recordLocalSave() }
             let projectName = project.name
             let rootPath = url.path
             let events = coordinationEvents.map { $0.snapshot() }
@@ -2243,6 +2807,42 @@ private struct ProjectsView: View {
             }
         } catch {
             statusText = "Project save failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveProjectSettings(
+        _ project: AgentProject,
+        name: String,
+        rootPath: String?,
+        bookmarkData: Data?,
+        promptExcerptSyncEnabled: Bool
+    ) {
+        project.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? project.name
+            : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.rootPath = rootPath
+        project.bookmarkData = bookmarkData
+        project.promptExcerptSyncEnabled = promptExcerptSyncEnabled
+        project.updatedAt = Date()
+
+        do {
+            try modelContext.save()
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            statusText = "Saved settings for \(project.name)."
+        } catch {
+            statusText = "Project setting save failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteProject(_ project: AgentProject) {
+        let name = project.name
+        modelContext.delete(project)
+        do {
+            try modelContext.save()
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            statusText = "Deleted project \(name)."
+        } catch {
+            statusText = "Delete failed: \(error.localizedDescription)"
         }
     }
 
@@ -3270,18 +3870,35 @@ private struct KPIBlock: View {
     let value: String
     let detail: String
 
+    private var tint: Color {
+        AgenicTheme.accentColor(for: title)
+    }
+
     var body: some View {
         GlassPanel {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.title2.weight(.semibold))
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(value)
+                        .font(.title2.weight(.semibold))
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 10)
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [tint.opacity(0.72), tint.opacity(0.24)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 11, height: 11)
+                    .shadow(color: tint.opacity(0.28), radius: 8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -3306,11 +3923,19 @@ private struct HeatmapCell: View {
         }
         .padding(10)
         .frame(minHeight: 74, alignment: .topLeading)
-        .background(metricColor.opacity(0.22), in: RoundedRectangle(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                .fill(.thinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                        .fill(AgenicTheme.metricGradient(for: metricColor))
+                }
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
                 .stroke(metricColor.opacity(0.55), lineWidth: 1)
         )
+        .shadow(color: metricColor.opacity(0.10), radius: 8, y: 3)
         .accessibilityLabel(cell.accessibilitySummary)
     }
 
@@ -3630,11 +4255,23 @@ private struct GlassPanel<Content: View>: View {
     var body: some View {
         content
             .padding(14)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background {
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .fill(.regularMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                            .fill(AgenicTheme.glassTint)
+                    }
+            }
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.separator.opacity(0.28), lineWidth: 1)
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                            .stroke(.separator.opacity(0.24), lineWidth: 1)
+                    )
             )
+            .shadow(color: Color.black.opacity(0.13), radius: 16, y: 7)
     }
 }
 

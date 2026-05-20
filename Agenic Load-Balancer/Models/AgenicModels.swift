@@ -980,6 +980,18 @@ struct AgentProviderSnapshot: Identifiable, Sendable {
 }
 
 extension AgentProviderProfile {
+    var isConfiguredForDashboard: Bool {
+        guard isEnabled else { return false }
+        let availability = ProviderAvailabilityState(rawValue: installedState) ?? .unknown
+        let auth = ProviderAuthState(rawValue: authState) ?? .unknown
+        if availability == .available { return true }
+        if auth == .authenticated || auth == .custom { return true }
+        if let lastHealthCheckAt, availability != .missing, availability != .disabled, availability != .error {
+            return Date().timeIntervalSince(lastHealthCheckAt) < 60 * 60 * 24 * 30
+        }
+        return false
+    }
+
     func snapshot() -> AgentProviderSnapshot {
         AgentProviderSnapshot(
             identifier: identifier,

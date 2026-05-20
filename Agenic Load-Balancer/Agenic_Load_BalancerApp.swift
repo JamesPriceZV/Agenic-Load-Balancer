@@ -162,7 +162,7 @@ struct Agenic_Load_BalancerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 1100, minHeight: 720)
+                .frame(minWidth: 960, minHeight: 640)
         }
         .modelContainer(sharedModelContainer)
         .commands {
@@ -176,25 +176,311 @@ struct Agenic_Load_BalancerApp: App {
     }
 }
 
-private struct SettingsView: View {
+enum AgenicSettingsTab: String, CaseIterable, Identifiable {
+    case generation
+    case context
+    case tools
+    case agents
+    case server
+    case memory
+    case storage
+    case about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .generation: "Generation"
+        case .context: "Context"
+        case .tools: "Tools"
+        case .agents: "Agents"
+        case .server: "Server"
+        case .memory: "Memory"
+        case .storage: "Storage"
+        case .about: "About"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .generation: "wand.and.stars"
+        case .context: "globe.americas"
+        case .tools: "hammer"
+        case .agents: "person.3"
+        case .server: "network"
+        case .memory: "memorychip"
+        case .storage: "externaldrive"
+        case .about: "info.circle"
+        }
+    }
+}
+
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
     @Query private var providers: [AgentProviderProfile]
+    @Query private var projects: [AgentProject]
     @Query private var keychainReferences: [KeychainReferenceRecord]
+    @Query private var snapshots: [CloudSnapshotRecord]
+
+    @AppStorage("Agenic.defaultMaxTokens") private var defaultMaxTokens = 1024
+    @AppStorage("Agenic.temperature") private var temperature = 0.6
+    @AppStorage("Agenic.requireMutatingActionApproval") private var requireMutatingActionApproval = true
+
+    @State private var selectedTab: AgenicSettingsTab
+    @State private var cloudStatus = CloudSyncStatusSnapshot(
+        containerIdentifier: AgenicDataModel.cloudKitContainerIdentifier,
+        lastLocalSave: nil,
+        lastCloudEvent: nil,
+        status: "loading",
+        detail: "Checking CloudKit-backed SwiftData status."
+    )
+
+    init(initialTab: AgenicSettingsTab = .generation) {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     var body: some View {
-        Form {
-            Section("Repository") {
-                LabeledContent("SwiftData", value: "Master local repository")
-                LabeledContent("CloudKit", value: AgenicDataModel.cloudKitContainerIdentifier)
-                LabeledContent("Secrets", value: "Keychain references only")
-            }
+        HStack(spacing: 0) {
+            settingsSidebar
 
-            Section("Providers") {
-                LabeledContent("Configured", value: "\(providers.count)")
-                LabeledContent("Credential References", value: "\(keychainReferences.count)")
+            Divider().opacity(0.55)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    Text(selectedTab.title)
+                        .font(.title2.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    selectedPane
+                }
+                .frame(maxWidth: 760, alignment: .leading)
+                .padding(28)
             }
         }
-        .formStyle(.grouped)
-        .padding(24)
-        .frame(width: 520)
+        .frame(minWidth: 860, idealWidth: 980, minHeight: 600, idealHeight: 720)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                AgenicTheme.detailBackground.opacity(0.48)
+            }
+        }
+        .task {
+            await refreshCloudStatus()
+        }
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Button {
+                dismiss()
+            } label: {
+                Label("Back to app", systemImage: "chevron.left")
+                    .font(.callout.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(AgenicSettingsTab.allCases) { tab in
+                    settingsTabButton(tab)
+                }
+            }
+
+            Spacer(minLength: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Label(cloudStatus.status.capitalized, systemImage: "icloud")
+                    .font(.caption.weight(.semibold))
+                Text(cloudStatus.containerIdentifier)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .padding(10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .padding(20)
+        .frame(width: 240)
+        .background {
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay(AgenicTheme.settingsSidebarTint)
+        }
+    }
+
+    private func settingsTabButton(_ tab: AgenicSettingsTab) -> some View {
+        Button {
+            selectedTab = tab
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 20)
+                Text(tab.title)
+                    .font(.callout.weight(.medium))
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
+        .background {
+            if selectedTab == tab {
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .fill(.thinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.12),
+                                        Color.accentColor.opacity(0.12),
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                    }
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                .stroke(selectedTab == tab ? Color.white.opacity(0.10) : Color.clear, lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedPane: some View {
+        switch selectedTab {
+        case .generation:
+            settingsSection("Sampling") {
+                HStack {
+                    Text("Temperature")
+                    Slider(value: $temperature, in: 0...1)
+                    Text(temperature, format: .number.precision(.fractionLength(2)))
+                        .font(.body.monospacedDigit())
+                        .frame(width: 54, alignment: .trailing)
+                }
+                Stepper(value: $defaultMaxTokens, in: 256...32_768, step: 256) {
+                    LabeledContent("Max tokens", value: "\(defaultMaxTokens.formatted())")
+                }
+            }
+        case .context:
+            settingsSection("Projects") {
+                settingsRow("Workspaces", "\(projects.count)")
+                settingsRow("Prompt excerpt sync", "\(projects.filter(\.promptExcerptSyncEnabled).count) enabled")
+                settingsRow("Heatmap providers", "Configured only")
+            }
+        case .tools:
+            settingsSection("Command Bar") {
+                Toggle("Require approval for mutating actions", isOn: $requireMutatingActionApproval)
+                    .toggleStyle(.switch)
+                settingsRow("Tool actions", "Rank, Dispatch, Probe, Snapshot, Reconcile, Metrics")
+                settingsRow("Dispatch behavior", "Approval-gated run drafts")
+            }
+        case .agents:
+            settingsSection("Providers") {
+                settingsRow("Catalog entries", "\(providers.count)")
+                settingsRow("Configured", "\(providers.filter(\.isConfiguredForDashboard).count)")
+                settingsRow("Available", "\(providers.filter { $0.installedState == ProviderAvailabilityState.available.rawValue }.count)")
+                settingsRow("Credential references", "\(keychainReferences.count)")
+            }
+        case .server:
+            settingsSection("Execution") {
+                settingsRow("Runner", "Local process + Foundation Models composite")
+                settingsRow("Approval model", "Approve then run")
+                settingsRow("Secrets", "Keychain references only")
+            }
+        case .memory:
+            settingsSection("AgentNotes") {
+                settingsRow("Default file", "AgentNotes.md")
+                settingsRow("Coordination source", "SwiftData ledger projection")
+                settingsRow("Projects with folders", "\(projects.filter { ($0.rootPath?.isEmpty == false) }.count)")
+            }
+        case .storage:
+            settingsSection("Repository") {
+                settingsRow("SwiftData", "Master local repository")
+                settingsRow("CloudKit", cloudStatus.containerIdentifier)
+                settingsRow("Status", cloudStatus.status.capitalized)
+                settingsRow("Detail", cloudStatus.detail)
+                settingsRow("Snapshots", "\(snapshots.count)")
+                settingsRow("Last local save", cloudStatus.lastLocalSave?.formatted(date: .abbreviated, time: .standard) ?? "Not recorded")
+                settingsRow("Last cloud event", cloudStatus.lastCloudEvent?.formatted(date: .abbreviated, time: .standard) ?? "Not recorded")
+                Button {
+                    Task { await refreshCloudStatus() }
+                } label: {
+                    Label("Refresh iCloud Status", systemImage: "arrow.triangle.2.circlepath.icloud")
+                }
+            }
+        case .about:
+            settingsSection("Agenic Load-Balancer") {
+                settingsRow("Version", appVersion)
+                settingsRow("CloudKit container", AgenicDataModel.cloudKitContainerIdentifier)
+                settingsRow("Data policy", "Workspace secrets stay out of SwiftData and CloudKit")
+            }
+        }
+    }
+
+    private func settingsSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.headline)
+            VStack(spacing: 0) {
+                content()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background {
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .fill(.thinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                            .fill(AgenicTheme.glassTint)
+                    }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                    .stroke(.white.opacity(0.10), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 14, y: 7)
+        }
+    }
+
+    private func settingsRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+            Spacer(minLength: 18)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.45)
+        }
+    }
+
+    private var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
+    }
+
+    private func refreshCloudStatus() async {
+        let status = await AppServices.cloudSync.currentStatus()
+        await MainActor.run {
+            cloudStatus = status
+        }
     }
 }

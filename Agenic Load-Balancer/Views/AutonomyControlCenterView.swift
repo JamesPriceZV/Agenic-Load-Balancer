@@ -79,6 +79,7 @@ struct AutonomyControlCenterView: View {
             ApprovalSheetView(
                 plan: active.plan,
                 dispatcher: dispatcher,
+                allowsConsoleHide: false,
                 onClose: {
                     let taskID = active.taskID
                     activeRun = nil

@@ -50,6 +50,24 @@ Expected result after each completed phase: `** TEST SUCCEEDED **`.
 - Cross-machine sync must be lossless. "Perfect conflict resolution" means no silent data loss: deterministic merges for known commutative operations, content-addressed snapshots for rollback, and explicit conflict records for non-commutative edits that need human review.
 - All model features need tests for unavailable Apple Intelligence, framework-unavailable builds, generation failure, cancellation, malformed tool output, and success.
 
+## May 20 UI, Sync, And Run-State Repair Plan
+
+**Problem statement from screenshots and live app behavior:** the Prompt Router and Projects views were built around wide fixed layouts, so controls clipped or disappeared when the window was not maximized. The approval sheet acted like the only live-console home, leaving users trapped while a run was active. The toolbar iCloud control refreshed state but did not surface any usable sync UI. The Projects screen could add workspaces but had no edit/delete surface, so folder-level settings could not be corrected after creation. The Prompt Router trusted a zero process exit even when nested provider output reported context-window or structured failure. The dashboard showed catalog providers in heatmaps instead of only configured providers.
+
+**Implementation plan and acceptance criteria:**
+
+- [x] Replace fixed Prompt Router split sizing with an adaptive geometry layout that stacks routing rationale below the prompt on narrower windows and keeps both columns scrollable.
+- [x] Add a persistent live-run dock in the Prompt Router so users can hide/dismiss the console sheet, reopen it, cancel a running job, and clear terminal sessions without losing run state.
+- [x] Keep Autonomy approval sheets stricter than Prompt Router sheets until the Autonomy tab has the same persistent console affordance; hiding is allowed only where a docked return path exists.
+- [x] Wire the toolbar iCloud button to refresh CloudKit status and open the in-app Settings sheet directly on the Storage tab.
+- [x] Replace the read-only Settings placeholder with a tabbed in-app Settings sheet modeled after the supplied screenshot: Generation, Context, Tools, Agents, Server, Memory, Storage, and About.
+- [x] Add project-level edit/delete wiring: Projects rows expose Settings and Delete, the settings sheet edits name, folder bookmark, prompt excerpt sync, and AgentNotes metadata, and all mutations save SwiftData and mark local CloudKit sync activity.
+- [x] Filter dashboard heatmaps, quotas, accuracy, performance summaries, and provider counts through `AgentProviderProfile.isConfiguredForDashboard` so only enabled/configured providers appear.
+- [x] Treat provider-reported context-window, quota/rate-limit, structured failed status, and nested nonzero `exit_code` output as failed runs even when the parent process exits zero.
+- [x] Add focused tests proving zero-exit provider failure classification and configured-provider dashboard filtering.
+- [x] Apply the supplied Liquid Glass layout examples with shaded navigation, subtle gradients, material panels, semantic metric colors, and a Settings left rail.
+- [x] Re-run `git diff --check`, focused unit tests, full macOS scheme, and local app launch after the UI polish pass.
+
 ## File Structure To Create Or Modify
 
 ### Phase 7.3 Files

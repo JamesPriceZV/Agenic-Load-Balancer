@@ -9,6 +9,8 @@ import SwiftData
 import SwiftUI
 
 struct CommandBarView: View {
+    @Environment(\.dismiss) private var dismiss
+
     let projects: [AgentProject]
     let providers: [AgentProviderProfile]
     let usageEntries: [UsageLedgerEntry]
@@ -32,6 +34,7 @@ struct CommandBarView: View {
             controls
             quickActions
             resultPanel
+            footer
         }
         .padding(18)
         .frame(minWidth: 680, idealWidth: 760, minHeight: 520, idealHeight: 620)
@@ -57,6 +60,15 @@ struct CommandBarView: View {
                     .lineLimit(1)
             }
             Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Close command bar")
         }
     }
 
@@ -148,6 +160,19 @@ struct CommandBarView: View {
                         .frame(maxWidth: .infinity, minHeight: 250, alignment: .topLeading)
                 }
             }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("Mutating actions stay draft-only until explicitly approved.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Close") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
         }
     }
 
