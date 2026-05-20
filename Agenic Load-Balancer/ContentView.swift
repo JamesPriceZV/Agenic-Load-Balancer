@@ -313,7 +313,7 @@ private struct PromptRouterView: View {
     @State private var prompt = ""
     @State private var selectedProjectID: String?
     @State private var selectedMode: AgentExecutionMode = .implementation
-    @State private var scores: [RoutingScoreBreakdown] = []
+    @State private var recommendation = RoutingRecommendation()
     @State private var selectedScoreID: UUID?
     @State private var commandPreview = "Rank agents to preview the approved command."
     @State private var approvalStatus = ""
@@ -404,16 +404,17 @@ private struct PromptRouterView: View {
                     Text("Routing Rationale")
                         .font(.title2.weight(.semibold))
 
-                    if scores.isEmpty {
+                    if recommendation.ranked.isEmpty {
                         ContentUnavailableView(
                             "No routes ranked",
                             systemImage: "point.3.connected.trianglepath.dotted",
                             description: Text("Enter a prompt and rank agents to see score breakdowns.")
                         )
                     } else {
-                        ForEach(scores) { score in
+                        ForEach(recommendation.ranked) { score in
                             RouteScoreRow(
                                 score: score,
+                                tieBreak: recommendation.tieBreak,
                                 isSelected: selectedScoreID == score.id
                             ) {
                                 selectedScoreID = score.id
@@ -452,7 +453,7 @@ private struct PromptRouterView: View {
     }
 
     private var selectedScore: RoutingScoreBreakdown? {
-        scores.first { $0.id == selectedScoreID }
+        recommendation.ranked.first { $0.id == selectedScoreID }
     }
 
     private func rankRoutes() {
@@ -468,7 +469,7 @@ private struct PromptRouterView: View {
         let mode = selectedMode
 
         Task {
-            let ranked = await AppServices.routingEngine.rank(
+            let nextRecommendation = await AppServices.routingRecommendation.recommend(
                 prompt: promptText,
                 mode: mode,
                 providers: providerSnapshots,
@@ -477,10 +478,10 @@ private struct PromptRouterView: View {
                 coordinationEvents: coordination
             )
             await MainActor.run {
-                scores = ranked
-                selectedScoreID = ranked.first?.id
-                if let first = ranked.first {
-                    buildCommandPreview(for: first)
+                recommendation = nextRecommendation
+                selectedScoreID = nextRecommendation.selected?.id
+                if let selected = nextRecommendation.selected {
+                    buildCommandPreview(for: selected)
                 }
             }
         }
@@ -3513,6 +3514,7 @@ private struct PerformanceSummaryRow: View {
 
 private struct RouteScoreRow: View {
     let score: RoutingScoreBreakdown
+    let tieBreak: RoutingTieBreak?
     let isSelected: Bool
     let onSelect: () -> Void
 
@@ -3535,6 +3537,13 @@ private struct RouteScoreRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
+
+                    if let tieBreak, score.providerID == tieBreak.selectedProviderID {
+                        Label("On-device tie-break: \(tieBreak.reason)", systemImage: "sparkles")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.accentColor)
+                            .multilineTextAlignment(.leading)
+                    }
 
                     HStack {
                         Label(score.estimatedCostUSD.formatted(.currency(code: "USD")), systemImage: "creditcard")

@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct RoutingScoreBreakdown: Identifiable, Sendable {
+struct RoutingScoreBreakdown: Identifiable, Sendable, Hashable {
     let id: UUID
     let providerID: String
     let providerName: String
@@ -60,6 +60,19 @@ struct RoutingScoreBreakdown: Identifiable, Sendable {
 }
 
 actor RoutingEngine {
+    nonisolated static func closeScoreCandidates(
+        from ranked: [RoutingScoreBreakdown],
+        threshold: Double = 0.035,
+        limit: Int = 3
+    ) -> [RoutingScoreBreakdown] {
+        guard let top = ranked.first else { return [] }
+        return Array(
+            ranked
+                .prefix(max(1, limit))
+                .filter { abs(top.totalScore - $0.totalScore) <= threshold }
+        )
+    }
+
     func rank(
         prompt: String,
         mode: AgentExecutionMode,

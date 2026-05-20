@@ -14,6 +14,7 @@ import SwiftData
 
 enum AppServices {
     static let routingEngine = RoutingEngine()
+    static let routingRecommendation = RoutingRecommendationCoordinator()
     static let healthMonitor = ProviderHealthMonitor()
     static let processRunner = AgentProcessRunner()
     static let coordination = ProjectCoordinationActor()
