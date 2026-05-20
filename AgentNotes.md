@@ -9,6 +9,7 @@ Created: May 5, 2026
 - Claim in-progress work and avoid conflicting tasks.
 - Record phases, waves, steps, handoffs, blockers, tests, commits, and push checkpoints.
 - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
+- Canonical working root as of May 19, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Treat `/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer` as stale unless the user explicitly redirects work there.
 
 ## Active Work
 - [checkpointed] Validation / UI-test timeout closeout
