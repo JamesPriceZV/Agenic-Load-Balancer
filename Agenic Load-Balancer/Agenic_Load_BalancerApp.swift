@@ -389,8 +389,7 @@ struct SettingsView: View {
                 settingsRow("Heatmap providers", "Configured only")
             }
             settingsSection("Compaction") {
-                Toggle("Compact long provider output before AI summaries", isOn: $contextCompactionEnabled)
-                    .toggleStyle(.switch)
+                settingsToggleRow("Compact long provider output before AI summaries", isOn: $contextCompactionEnabled)
                 Stepper(value: $contextCompactionThresholdTokens, in: 8_000...1_000_000, step: 8_000) {
                     LabeledContent("Context threshold", value: "\(contextCompactionThresholdTokens.formatted()) tokens")
                 }
@@ -400,20 +399,15 @@ struct SettingsView: View {
             }
         case .tools:
             settingsSection("Command Bar") {
-                Toggle("Require approval for mutating actions", isOn: $requireMutatingActionApproval)
-                    .toggleStyle(.switch)
+                settingsToggleRow("Require approval for mutating actions", isOn: $requireMutatingActionApproval)
                 settingsRow("Tool actions", "Rank, Dispatch, Probe, Snapshot, Reconcile, Metrics")
                 settingsRow("Dispatch behavior", "Approval-gated run drafts")
             }
             settingsSection("Default Tool Permissions") {
-                Toggle("Allow tool calling", isOn: $allowToolCalling)
-                    .toggleStyle(.switch)
-                Toggle("Allow shell tools", isOn: $allowShellTools)
-                    .toggleStyle(.switch)
-                Toggle("Allow network search", isOn: $allowNetworkSearch)
-                    .toggleStyle(.switch)
-                Toggle("Allow filesystem writes", isOn: $allowFilesystemWrites)
-                    .toggleStyle(.switch)
+                settingsToggleRow("Allow tool calling", isOn: $allowToolCalling)
+                settingsToggleRow("Allow shell tools", isOn: $allowShellTools)
+                settingsToggleRow("Allow network search", isOn: $allowNetworkSearch)
+                settingsToggleRow("Allow filesystem writes", isOn: $allowFilesystemWrites)
             }
         case .agents:
             settingsSection("Providers") {
@@ -477,6 +471,7 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 content()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background {
@@ -493,6 +488,7 @@ struct SettingsView: View {
             )
             .shadow(color: Color.black.opacity(0.12), radius: 14, y: 7)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func settingsRow(_ title: String, _ value: String) -> some View {
@@ -505,6 +501,22 @@ struct SettingsView: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.45)
+        }
+    }
+
+    private func settingsToggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center) {
+            Text(title)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 18)
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .overlay(alignment: .bottom) {
             Divider().opacity(0.45)

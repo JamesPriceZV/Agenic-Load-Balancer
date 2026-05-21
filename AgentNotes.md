@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 20, 2026: `/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer`. The archive at `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` is copy-only source material.
 
 ## Active Work
+- [checkpointed] Settings Tools alignment polish
+  Assignee: OpenAI Codex
+  Detail: Reviewed the current Settings panes reported from screenshots. The Tools pane settings are live `@AppStorage` defaults, while Server, Memory, and Storage include a mix of editable defaults and read-only diagnostics/status rows. Reworked reusable settings layout so sections expand to the content column and toggle rows use a two-column settings pattern with labels on the left and switches pinned to the right. This fixes the Tools pane's compressed Default Tool Permissions card and aligns Command Bar / tool-permission switches consistently.
+  Run: local UI polish and explanation turn on May 21, 2026
+  Commit: this local checkpoint commit (`Align Settings tool controls`)
+  Conflict: none
+  Validation: `git diff --check` produced no output. Build passed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -derivedDataPath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_Settings_20260521_175905/DerivedData" SYMROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_Settings_20260521_175905/Build" OBJROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_Settings_20260521_175905/Intermediates" SHARED_PRECOMPS_DIR="/Volumes/USB256/Xcode_Projects_Storage/Agenic_Settings_20260521_175905/PrecompiledHeaders" CODE_SIGNING_ALLOWED=NO build`.
+
 - [checkpointed] Autonomy readiness control room polish
   Assignee: OpenAI Codex
   Detail: Made autonomy feel deliberate, safe, and inspectable instead of hidden behind a draft button. Added `AutonomyReadinessBuilder`, a testable readiness engine that scores workspace selection, provider readiness, policy posture, machine-sync health, active/blocked tasks, and validation gates before autonomous work can be prepared. Refined the Autonomy control center into a responsive control-room layout with a readiness gauge, next-action language, safety contract checklist, persisted autonomous work queue, validation counts, provider/task context, and machine-peer sync posture. The UI now makes the next safe step obvious: ready systems invite approved autonomous preparation, caution systems explain what needs review, and blocked systems hold execution until a concrete guardrail is repaired.
