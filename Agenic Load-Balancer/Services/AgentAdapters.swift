@@ -369,6 +369,13 @@ struct GenericCLIAdapter: AgentCLIAdapter {
             arguments.append(coordinationPrompt)
             return arguments
 
+        case "xcodebuildmcp.source":
+            if let projectPath,
+               let projectFile = firstXcodeProject(in: projectPath) {
+                return ["-list", "-project", projectFile]
+            }
+            return ["-version"]
+
         case "deepseek.api":
             // DeepSeek has no first-party standalone CLI; the user is
             // expected to supply a custom command profile. We emit a
@@ -379,6 +386,26 @@ struct GenericCLIAdapter: AgentCLIAdapter {
         default:
             return [coordinationPrompt]
         }
+    }
+
+    private static func firstXcodeProject(in projectPath: String) -> String? {
+        let url = URL(fileURLWithPath: projectPath, isDirectory: true)
+        if url.pathExtension == "xcodeproj" || url.pathExtension == "xcworkspace" {
+            return url.path
+        }
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil
+        ) else {
+            return nil
+        }
+
+        return contents
+            .filter { $0.pathExtension == "xcodeproj" || $0.pathExtension == "xcworkspace" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .first?
+            .path
     }
 
     static func defaultCommandStandardInput(
@@ -444,7 +471,8 @@ struct CLIExecutableResolver: CLIExecutableResolving {
                 let process = Process()
                 let output = Pipe()
                 process.executableURL = URL(fileURLWithPath: executablePath)
-                process.arguments = ["--version"]
+                let executableName = URL(fileURLWithPath: executablePath).lastPathComponent
+                process.arguments = executableName == "xcodebuild" ? ["-version"] : ["--version"]
                 process.standardOutput = output
                 process.standardError = output
 

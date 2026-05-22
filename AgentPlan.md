@@ -23,7 +23,8 @@ Updated: May 22, 2026
 - Sprint E from this roadmap is implemented as the first Cross-Machine Conflict Center slice. The app now has a dedicated Conflicts navigation surface that previews persisted conflict records and synthetic operation-log divergence, shows local/remote envelopes, peer/snapshot warnings, dry-run resolution choices, rollback anchors, and records explicit decisions into SwiftData without mutating target entities.
 - Sprint F from this roadmap is implemented as trusted autopilot lane templates and safety review. Autonomy now has explicit read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency-update, and commit/push lanes with root scopes, protected paths, command allowlists, network posture, budget caps, validation commands, rollback-evidence checks, and a visible "why this is safe" review before task preparation.
 - Sprint G from this roadmap is implemented as the first automated UI flow and launch-verification slice. UI tests now cover the minimum-window Command Bar, Prompt Router, Settings Tools controls, Projects controls, project settings, workspace/task navigation, Restore, Autonomy, and light/dark launch flows using deterministic `--uitesting` fixtures and stable accessibility identifiers.
-- Future work remains, but it should be treated as scoped roadmap work after Sprint G rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint J from the live-maturity queue is implemented as provider probe maintenance plus XcodeBuildMCP source support. The provider catalog now includes XcodeBuildMCP as a local tool source, auth recipes treat it as no-auth/MCP-configured, safe probe reporting covers installed CLI/provider state without launching login flows, and probe classifiers separate API-key, account-login, custom-profile, quota, rate, subscription, and context signals.
+- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint J rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -31,7 +32,7 @@ Updated: May 22, 2026
 - SwiftData schema for projects, provider profiles, command profiles, usage snapshots, routing decisions, run outcomes, coordination events, snapshots, autonomy goals/plans/tasks, policies, machine peers, validation gates, conflict records, and audit trail entries.
 - CloudKit/private iCloud configuration for SwiftData sync and app-level sync status display.
 - Keychain reference model for secrets, with SwiftData/CloudKit storing references and setup metadata only.
-- Provider catalog and setup wizard with install instructions, account/browser login lanes, API-key lanes, verification commands, auth probes, docs links, custom command profiles, and environment hints.
+- Provider catalog and setup wizard with install instructions, account/browser login lanes, API-key lanes, verification commands, auth probes, docs links, custom command profiles, environment hints, and XcodeBuildMCP as a local tool-source entry for build/test/debug/log/screenshot/UI-automation workflows when the MCP connector is configured.
 - Prompt Router scoring, rationale cards, score breakdowns, configured-provider filtering, quota/cost/performance inputs, accuracy history, recent reliability history, and close-score tie-break hooks.
 - Approval-gated run pipeline with live console, process streaming, cancellation, token usage capture, preprocessing timing, context-window failure detection, summary status, outcome rating, and optional git checkpointing.
 - Codex CLI prompt transport through stdin (`codex exec --json --cd <project> -`) so long prompts are not rejected as command-line arguments.
@@ -61,7 +62,7 @@ Updated: May 22, 2026
 
 - Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
 - CloudKit sync is wired, status is observable, and Sprint E exposes a conflict inspection/resolution surface. "Perfect cross-machine sync" still needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
-- Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
+- Provider auth recipes are grounded in official flows and expose account/API-key lanes. Sprint J adds a safe live probe report and XcodeBuildMCP source support, but each provider's login, subscription state, quota endpoint, and CLI behavior can still change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
 - UI validation now has launch coverage, minimum-window flow coverage, and a first deterministic workspace/task flow. Screenshot-diff baselines, maximized/full-screen matrices, provider setup edge cases, and run-sheet failure-state permutations still need broader automated coverage.
@@ -71,7 +72,7 @@ Updated: May 22, 2026
 
 - Live Foundation Models smoke suite: run command bar, run summary, AgentNotes intelligence, and tie-breaker against real on-device Foundation Models and record observed availability states.
 - Provider-specific continuation loops: add source-file summarization, provider-specific context windows, bounded resume execution policies, and continuation approval flows that can safely chain long runs without losing auditability.
-- Provider-specific live probe maintenance: expand the normalized Sprint D probe layer with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
+- Provider-specific live probe maintenance: keep the Sprint J safe report current as CLIs change, then expand normalized probe coverage with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
 - Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
 - Conflict resolution expansion: add entity-specific merge policies, execute real restore-into-copy workflows, and run multi-device recovery drills with intentionally divergent CloudKit records.
 - Trusted-autopilot expansion: build on the new Sprint F lane templates with richer live evidence collection, automatic snapshot creation, bounded multi-step execution, and per-lane recovery drills.
@@ -392,6 +393,24 @@ Validation:
 - `script/release_candidate.sh --verify-credentials` correctly blocked on this Mac because only Apple Development identities are installed; no `Developer ID Application` identity was present.
 - Focused `ReleaseReadinessTests` passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintI_Release_20260522_145907/Results/ReleaseReadiness.xcresult`.
 
+### Sprint J - Provider Probe Maintenance And XcodeBuildMCP Source
+
+Goal: make live provider/source status observable without leaking secrets or launching login/install flows.
+
+- Added XcodeBuildMCP to `ProviderCatalog` as a `tool-source` provider with `xcodebuild -version` verification, no provider login requirement, and docs pointing to the XcodeBuildMCP configuration guide.
+- Added an XcodeBuildMCP `ProviderAuthRecipe` that records `session_show_defaults` and `xcodebuild -version` as safe probes and documents that macOS/device/debug/UI automation workflows depend on the user's MCP configuration.
+- Added safe XcodeBuildMCP command defaults in `GenericCLIAdapter`: use `xcodebuild -list -project <first project>` when a workspace contains an Xcode project, otherwise use `xcodebuild -version`.
+- Hardened provider probe classification so API-key evidence is not collapsed into generic account sign-in, and live text can infer auth and limit state from health messages/detail lines before falling back to catalog state.
+- Added `script/provider_probe_report.sh`, a safe report generator that checks local provider binaries, non-secret environment-variable presence, version/auth diagnostics, Apple Foundation Models diagnostic posture, XcodeBuildMCP local toolchain availability, and custom-profile needs without running installers, browser auth, device-code auth, or commands that intentionally print secrets.
+- Added regression tests for XcodeBuildMCP catalog/auth/default-command support, safe probe-report script contract, provider-output auth/limit classification, and live-output-first report summarization.
+
+Validation:
+
+- `bash -n script/provider_probe_report.sh script/release_candidate.sh script/release_preflight.sh` passed.
+- XcodeBuildMCP `session_show_defaults` is callable in this Codex session and currently reports no active project/workspace/scheme/simulator defaults configured, which is why app support treats XcodeBuildMCP as a configurable source rather than assuming a ready build target.
+- Safe provider probe report completed with `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_ProviderProbe_20260522_161704" PROBE_TIMEOUT_SECONDS=4 script/provider_probe_report.sh`; output recorded Codex, Claude, GitHub CLI, Gemini, and XcodeBuildMCP/xcodebuild availability while redacting token text.
+- Focused ProviderWizard/catalog tests passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintJ_Provider_20260522_161138/Results/ProviderProbe.xcresult`.
+
 ### Remaining Live-Maturity Queue
 
-The remaining queue is now provider-specific live probe maintenance, live multi-machine conflict recovery drills, expanded screenshot-diff visual regression, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.
+The remaining queue is now live multi-machine conflict recovery drills, expanded screenshot-diff visual regression, ongoing provider probe upkeep as CLIs drift, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.

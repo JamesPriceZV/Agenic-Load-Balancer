@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint J provider probe maintenance and XcodeBuildMCP source support
+  Assignee: OpenAI Codex
+  Detail: Added XcodeBuildMCP as a no-auth local tool source in the provider catalog/auth recipe layer, with `session_show_defaults` documented as the MCP defaults probe and `xcodebuild -version` as the local toolchain verification. Hardened probe telemetry so API-key evidence stays distinct from account login, and added a safe `script/provider_probe_report.sh` report that checks installed provider binaries, non-secret environment variable presence, version/auth diagnostics, Apple Foundation Models diagnostic posture, XcodeBuildMCP local availability, and custom-profile needs without launching installers, browser auth, device-code flows, or login commands. ProviderWizard tests now cover XcodeBuildMCP defaults, safe script contract, and live-output-first auth/limit classification.
+  Run: local Sprint J provider probe/XcodeBuildMCP implementation and validation turn on May 22, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: `bash -n script/provider_probe_report.sh script/release_candidate.sh script/release_preflight.sh` passed. XcodeBuildMCP `session_show_defaults` is callable in this Codex session and currently reports no configured project/workspace/scheme/simulator defaults. `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_ProviderProbe_20260522_161704" PROBE_TIMEOUT_SECONDS=4 script/provider_probe_report.sh` completed and redacted token text. Focused ProviderWizard/catalog tests passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintJ_Provider_20260522_161138/Results/ProviderProbe.xcresult`.
+
 - [checkpointed] Sprint I release-candidate credential drill
   Assignee: OpenAI Codex
   Detail: Added `script/release_candidate.sh` so the repo can run a real Developer ID release-candidate drill when the user's Keychain contains a `Developer ID Application` certificate and a notarytool profile. The script verifies credentials, creates a signed archive, exports with developer-id options, packages with `ditto`, submits with `xcrun notarytool --wait`, staples with `xcrun stapler`, and assesses with `spctl`. `ReleaseReadiness.md` now documents the flow and the no-secret policy for Apple account material; `ReleaseReadinessTests` guards the script contract.

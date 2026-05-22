@@ -260,6 +260,26 @@ enum ProviderCatalog {
             safetyNotes: "Privacy-preserving: prompts and outputs never leave the device."
         ),
         AgentProviderDraft(
+            identifier: "xcodebuildmcp.source",
+            displayName: "XcodeBuildMCP",
+            providerFamily: "Apple Developer Tools",
+            homepageURL: "https://xcodebuildmcp.com/docs/configuration",
+            sourceURL: "https://xcodebuildmcp.com/docs/configuration",
+            binaryName: "xcodebuild",
+            installCommand: "Configure the XcodeBuildMCP connector in Codex and install Xcode command line tools; verify with `xcodebuild -version`.",
+            verificationCommand: "xcodebuild -version",
+            authGuide: "No provider login is required. XcodeBuildMCP uses local Xcode projects, schemes, simulators, devices, and configured Codex MCP permissions.",
+            authMethods: "Local tool,MCP connector",
+            capabilities: "tool-source,xcode-build,macos-build,ios-simulator,ui-automation,debugging,logs,build-settings,swiftpm",
+            supportedExecutionModes: [
+                AgentExecutionMode.testBuild,
+            ].map(\.rawValue).joined(separator: ","),
+            modelListSource: "XcodeBuildMCP session defaults plus local Xcode project/workspace discovery.",
+            costPolicySummary: "No provider billing. Runs local Xcode build/test/debug commands.",
+            quotaPolicySummary: "Bound by local CPU, disk, simulator/device state, and configured build roots.",
+            safetyNotes: "Treat as a tool source, not a text-generation agent. Require explicit approval before build/test/debug actions and never run installers silently."
+        ),
+        AgentProviderDraft(
             identifier: "deepseek.api",
             displayName: "DeepSeek API",
             providerFamily: "DeepSeek",

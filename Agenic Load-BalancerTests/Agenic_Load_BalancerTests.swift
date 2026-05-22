@@ -18,6 +18,7 @@ struct Agenic_Load_BalancerTests {
         #expect(providerIDs.contains("openai.codex"))
         #expect(providerIDs.contains("anthropic.claude-code"))
         #expect(providerIDs.contains("github.copilot-cli"))
+        #expect(providerIDs.contains("xcodebuildmcp.source"))
         #expect(providerIDs.contains("deepseek.api"))
     }
 

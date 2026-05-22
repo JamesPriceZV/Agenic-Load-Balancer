@@ -88,6 +88,11 @@ struct ProviderWizardTests {
             #expect(arguments.count >= 1, "Provider \(draft.identifier) returned an empty argument array")
             if draft.identifier == "openai.codex" {
                 #expect(arguments.last == "-", "Codex should read the prompt from stdin")
+            } else if draft.capabilities.contains("tool-source") {
+                #expect(
+                    arguments.contains("-version") || arguments.contains("-list"),
+                    "Tool source \(draft.identifier) should use safe discovery arguments"
+                )
             } else {
                 #expect(arguments.last?.contains("{{prompt}}") == true || arguments.last?.contains("prompt") == true,
                         "Provider \(draft.identifier) does not pipe the coordination prompt as the final argument")
@@ -108,6 +113,12 @@ struct ProviderWizardTests {
         let foundationModels = ProviderAuthRecipe.recipe(for: "apple.foundation-models")
         #expect(foundationModels.accountLoginCommands.isEmpty)
         #expect(!foundationModels.supportsAPIKey)
+
+        let xcodebuildMCP = ProviderAuthRecipe.recipe(for: "xcodebuildmcp.source")
+        #expect(xcodebuildMCP.primaryMethod.contains("XcodeBuildMCP"))
+        #expect(xcodebuildMCP.accountLoginCommands.isEmpty)
+        #expect(xcodebuildMCP.authProbeCommands.contains { $0.command == "session_show_defaults" })
+        #expect(!xcodebuildMCP.supportsAPIKey)
     }
 
     @Test func providerProbeClassifierSeparatesAuthAndLimitSignals() {
@@ -128,6 +139,92 @@ struct ProviderWizardTests {
         #expect(quota == .quotaLimited)
         #expect(rate == .rateLimited)
         #expect(context == .contextLimited)
+
+        #expect(ProviderProbeClassifier.authStatus(fromOutput: "not logged in") == .unauthenticated)
+        #expect(ProviderProbeClassifier.authStatus(fromOutput: "Signed in as developer@example.com") == .accountSignedIn)
+        #expect(ProviderProbeClassifier.authStatus(fromOutput: "Using API key from environment") == .apiKeyPresent)
+        #expect(ProviderProbeClassifier.authStatus(fromOutput: "Custom provider configured") == .customProfile)
+        #expect(ProviderProbeClassifier.limitStatus(fromOutput: "insufficient_quota") == .quotaLimited)
+        #expect(ProviderProbeClassifier.limitStatus(fromOutput: "payment required for this account plan") == .subscriptionLimited)
+        #expect(ProviderProbeClassifier.limitStatus(fromOutput: "ratelimit status 429") == .rateLimited)
+
+        let xcodebuild = Self.snapshot(forProviderID: "xcodebuildmcp.source")
+        let xcodeAuth = ProviderProbeClassifier.authStatus(provider: xcodebuild)
+        #expect(xcodeAuth == .notRequired)
+    }
+
+    @Test func xcodebuildMCPSourceUsesSafeDiscoveryCommandDefaults() throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgenicXcodeSource-\(UUID().uuidString)", isDirectory: true)
+        let project = workspace.appendingPathComponent("Demo.xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let withProject = GenericCLIAdapter.defaultCommandArguments(
+            for: "xcodebuildmcp.source",
+            coordinationPrompt: "build",
+            projectPath: workspace.path,
+            mode: .testBuild
+        )
+        let expectedProjectPath = project.standardizedFileURL.path
+        let actualProjectPath = withProject.last.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        #expect(withProject.dropLast() == ["-list", "-project"])
+        #expect(actualProjectPath == expectedProjectPath)
+
+        let withoutProject = GenericCLIAdapter.defaultCommandArguments(
+            for: "xcodebuildmcp.source",
+            coordinationPrompt: "build",
+            projectPath: nil,
+            mode: .testBuild
+        )
+        #expect(withoutProject == ["-version"])
+    }
+
+    @Test func providerProbeReportInfersLiveOutputSignalsBeforeCatalogFallback() {
+        let codex = Self.snapshot(forProviderID: "openai.codex")
+        let health = ProviderHealthSnapshot(
+            providerID: codex.identifier,
+            availabilityState: .available,
+            detectedVersion: "1.2.3",
+            message: "CLI detected",
+            checkedAt: Date(timeIntervalSince1970: 0),
+            detailLines: [
+                "Auth probe: not logged in",
+                "Limit probe: payment required for current account plan",
+            ]
+        )
+
+        let report = ProviderProbeClassifier.report(
+            provider: codex,
+            health: health,
+            usage: nil,
+            reliability: nil
+        )
+
+        #expect(report.authStatus == .unauthenticated)
+        #expect(report.limitStatus == .subscriptionLimited)
+        #expect(report.summary == "Login required; Subscription limited")
+    }
+
+    @Test func providerProbeReportScriptHasSafeNonSecretProbeContract() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let script = try String(
+            contentsOf: root.appendingPathComponent("script/provider_probe_report.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("PROBE_TIMEOUT_SECONDS"))
+        #expect(script.contains("gh auth status"))
+        #expect(script.contains("opencode auth list"))
+        #expect(script.contains("XcodeBuildMCP"))
+        #expect(script.contains("session_show_defaults"))
+        #expect(script.contains("DEEPSEEK_API_KEY"))
+        #expect(script.contains("RUN_ROOT"))
+        #expect(!script.contains("codex login"))
+        #expect(!script.contains("gh auth login"))
+        #expect(!script.contains("cursor-agent login"))
     }
 
     @Test func deepSeekDefaultIncludesCustomProfileNote() {

@@ -77,8 +77,18 @@ enum ProviderProbeClassifier {
         recipe: ProviderAuthRecipe = ProviderAuthRecipe.recipe(for: ""),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> ProviderProbeAuthStatus {
-        if provider.identifier == "apple.foundation-models" {
+        if provider.identifier == "apple.foundation-models" ||
+            provider.identifier == "xcodebuildmcp.source" {
             return .notRequired
+        }
+
+        let resolvedRecipe = recipe.providerID.isEmpty
+            ? ProviderAuthRecipe.recipe(for: provider.identifier)
+            : recipe
+        if resolvedRecipe.apiKeyEnvironmentVariables.contains(where: { key in
+            environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }) {
+            return .apiKeyPresent
         }
 
         switch provider.authState {
@@ -92,13 +102,47 @@ enum ProviderProbeClassifier {
             break
         }
 
-        let resolvedRecipe = recipe.providerID.isEmpty
-            ? ProviderAuthRecipe.recipe(for: provider.identifier)
-            : recipe
-        if resolvedRecipe.apiKeyEnvironmentVariables.contains(where: { key in
-            environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        }) {
+        return .unknown
+    }
+
+    static func authStatus(fromOutput text: String) -> ProviderProbeAuthStatus {
+        let lowercased = text.lowercased()
+        guard !lowercased.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .unknown
+        }
+
+        if lowercased.contains("not logged in") ||
+            lowercased.contains("not signed in") ||
+            lowercased.contains("login required") ||
+            lowercased.contains("authentication required") ||
+            lowercased.contains("auth required") ||
+            lowercased.contains("unauthenticated") ||
+            lowercased.contains("no credentials") ||
+            lowercased.contains("missing credentials") ||
+            lowercased.contains("no token") ||
+            lowercased.contains("invalid api key") ||
+            lowercased.contains("api key required") {
+            return .unauthenticated
+        }
+
+        if lowercased.contains("api key") ||
+            lowercased.contains("apikey") ||
+            lowercased.contains("bearer token") {
             return .apiKeyPresent
+        }
+
+        if lowercased.contains("signed in") ||
+            lowercased.contains("logged in") ||
+            lowercased.contains("authenticated") ||
+            lowercased.contains("valid credentials") ||
+            lowercased.contains("token: ok") {
+            return .accountSignedIn
+        }
+
+        if lowercased.contains("custom profile") ||
+            lowercased.contains("custom provider") ||
+            lowercased.contains("provider configured") {
+            return .customProfile
         }
 
         return .unknown
@@ -148,23 +192,29 @@ enum ProviderProbeClassifier {
         }
 
         if lowercased.contains("rate limit") ||
+            lowercased.contains("ratelimit") ||
             lowercased.contains("too many requests") ||
             lowercased.contains("http 429") ||
+            lowercased.contains("status 429") ||
             lowercased.contains(" 429") {
             return .rateLimited
         }
 
         if lowercased.contains("quota") ||
+            lowercased.contains("insufficient_quota") ||
             lowercased.contains("usage limit") ||
             lowercased.contains("limit exceeded") ||
-            lowercased.contains("exceeded your current") {
+            lowercased.contains("exceeded your current") ||
+            lowercased.contains("credit balance") {
             return .quotaLimited
         }
 
         if lowercased.contains("subscription") ||
             lowercased.contains("upgrade") ||
             lowercased.contains("plan limit") ||
-            lowercased.contains("billing") {
+            lowercased.contains("billing") ||
+            lowercased.contains("payment required") ||
+            lowercased.contains("account plan") {
             return .subscriptionLimited
         }
 
@@ -177,11 +227,11 @@ enum ProviderProbeClassifier {
         usage: UsageSnapshot?,
         reliability: ProviderReliabilitySnapshot?
     ) -> ProviderProbeReport {
-        let auth = health.authStatus == .unknown
-            ? authStatus(provider: provider)
-            : health.authStatus
+        let liveText = ([health.message] + health.detailLines).joined(separator: "\n")
+        let detectedAuth = health.authStatus == .unknown ? authStatus(fromOutput: liveText) : health.authStatus
+        let auth = detectedAuth == .unknown ? authStatus(provider: provider) : detectedAuth
         let limit = health.limitStatus == .unknown
-            ? limitStatus(from: health.message, usage: usage, reliability: reliability)
+            ? limitStatus(from: liveText, usage: usage, reliability: reliability)
             : health.limitStatus
         let reliabilityText = reliability.map {
             "Reliability \($0.reliabilityScore.formatted(.percent.precision(.fractionLength(0)))) over \($0.recentRunCount) recent run(s)."

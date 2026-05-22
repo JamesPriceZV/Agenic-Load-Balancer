@@ -254,6 +254,26 @@ struct ProviderAuthRecipe: Sendable, Hashable {
                 ]
             )
 
+        case "xcodebuildmcp.source":
+            return ProviderAuthRecipe(
+                providerID: providerID,
+                primaryMethod: "Local XcodeBuildMCP connector and Xcode toolchain",
+                billingBoundary: "No API or subscription billing is involved; XcodeBuildMCP executes local build/test/debug tooling through the configured MCP connector.",
+                accountLoginCommands: [],
+                authProbeCommands: [
+                    .init(title: "MCP defaults", command: "session_show_defaults", detail: "Codex/XcodeBuildMCP session defaults show the configured project, scheme, platform, and device/simulator."),
+                    .init(title: "Check Xcode", command: "xcodebuild -version", detail: "Verifies the local Xcode command-line toolchain."),
+                ],
+                apiKeyEnvironmentVariables: [],
+                directOAuthSupported: false,
+                directOAuthNote: "No browser login or OAuth callback is required. Configure the MCP connector and Xcode access in Codex.",
+                docsURL: "https://xcodebuildmcp.com/docs/configuration",
+                notes: [
+                    "Use XcodeBuildMCP for project discovery, build/test/debug, logs, screenshots, and UI automation when those workflows are enabled.",
+                    "Only simulator tools may be exposed until the user enables macOS, device, debugging, or UI automation workflows in XcodeBuildMCP.",
+                ]
+            )
+
         case "deepseek.api":
             return ProviderAuthRecipe(
                 providerID: providerID,
