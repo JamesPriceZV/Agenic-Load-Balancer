@@ -187,6 +187,8 @@ final class RunDispatcher {
     private(set) var preprocessingSeconds: Double = 0
     private(set) var checkpointStatus: CheckpointStatus = .notRequested
     private(set) var preflightExcerpt: String?
+    private(set) var preflightTokenEstimate: TokenBudgetEstimate?
+    private(set) var continuationPlan: RunContinuationPlan?
     private(set) var currentPlan: RunPlan?
     /// Phase 7.2: live AI summary state, surfaced to the approval sheet.
     private(set) var aiSummaryStatus: AISummaryStatus = .notRequested
@@ -250,6 +252,8 @@ final class RunDispatcher {
         preprocessingSeconds = 0
         checkpointStatus = .notRequested
         preflightExcerpt = nil
+        preflightTokenEstimate = nil
+        continuationPlan = nil
         currentPlan = nil
         aiSummaryStatus = .notRequested
         activeOutcome = nil
@@ -278,13 +282,29 @@ final class RunDispatcher {
         currentPlan = plan
         let preflightStart = now()
         preflightStartedAt = preflightStart
-        let preflightPromptText = agentNotesPreflightSummary?.promptInjectionText ?? agentNotesExcerpt
+        let rawPreflightPromptText = agentNotesPreflightSummary?.promptInjectionText ?? agentNotesExcerpt
+        let workspacePolicy = Self.workspacePolicyPrompt(for: plan)
+        let preflightBudget = TokenBudgetEstimator.preparePreflightContext(
+            userPrompt: plan.prompt,
+            agentNotesExcerpt: rawPreflightPromptText,
+            workspacePolicy: workspacePolicy,
+            projectRootPath: Self.effectiveWorkingPath(for: plan),
+            providerID: plan.providerID,
+            contextCompactionEnabled: plan.contextCompactionEnabled,
+            thresholdTokens: plan.contextCompactionThresholdTokens
+        )
+        let preflightPromptText = preflightBudget.agentNotesExcerpt
         preflightExcerpt = preflightPromptText
+        preflightTokenEstimate = preflightBudget.estimate
         appendSystem("Approved \(plan.providerName) for \(plan.mode.label).")
+        appendSystem("Context budget: \(preflightBudget.estimate.summary)")
+        if let compactionNote = preflightBudget.compactionNote, preflightBudget.didCompact {
+            appendSystem(compactionNote)
+        }
         if let agentNotesPreflightSummary {
-            appendSystem("AgentNotes intelligent preflight injected (\(agentNotesPreflightSummary.promptInjectionText.count) chars).")
-        } else if agentNotesExcerpt?.isEmpty == false {
-            appendSystem("AgentNotes preflight injected (\(agentNotesExcerpt?.count ?? 0) chars).")
+            appendSystem("AgentNotes intelligent preflight injected (\(preflightPromptText?.count ?? agentNotesPreflightSummary.promptInjectionText.count) chars).")
+        } else if preflightPromptText?.isEmpty == false {
+            appendSystem("AgentNotes preflight injected (\(preflightPromptText?.count ?? 0) chars).")
         }
 
         let profile = Self.fetchEnabledCommandProfile(
@@ -296,7 +316,7 @@ final class RunDispatcher {
         let promptForCommand = Self.composeCommandPrompt(
             userPrompt: plan.prompt,
             agentNotesExcerpt: preflightPromptText,
-            workspacePolicy: Self.workspacePolicyPrompt(for: plan)
+            workspacePolicy: workspacePolicy
         )
 
         let command: AgentCommand
@@ -322,7 +342,13 @@ final class RunDispatcher {
         preflightEndedAt = startedAtTimestamp
         preprocessingSeconds = startedAtTimestamp.timeIntervalSince(preflightStart)
 
-        let records = persistApprovalRecords(plan: plan, command: command, modelContext: modelContext, startedAt: startedAtTimestamp)
+        let records = persistApprovalRecords(
+            plan: plan,
+            command: command,
+            modelContext: modelContext,
+            startedAt: startedAtTimestamp,
+            preflightEstimate: preflightBudget.estimate
+        )
         activeOutcome = records.outcome
         activeUsage = records.usage
         activeCoordination = records.coordination
@@ -593,14 +619,8 @@ final class RunDispatcher {
         aiSummaryStatus = .pending
         appendSystem("Requesting on-device run summary…")
 
-        let stdoutBuffer = logs
-            .filter { $0.kind == .stdout }
-            .map(\.text)
-            .joined(separator: "\n")
-        let stderrBuffer = logs
-            .filter { $0.kind == .stderr }
-            .map(\.text)
-            .joined(separator: "\n")
+        let stdoutBuffer = capturedLogBuffer(kind: .stdout)
+        let stderrBuffer = capturedLogBuffer(kind: .stderr)
 
         let input = RunSummaryInput(
             prompt: plan.prompt,
@@ -713,6 +733,13 @@ final class RunDispatcher {
         appendLine(.init(kind: .system, text: message))
     }
 
+    private func capturedLogBuffer(kind: LogLine.Kind) -> String {
+        logs
+            .filter { $0.kind == kind }
+            .map(\.text)
+            .joined(separator: "\n")
+    }
+
     // MARK: Persistence
 
     private struct ApprovalRecords {
@@ -728,7 +755,8 @@ final class RunDispatcher {
         plan: RunPlan,
         command: AgentCommand,
         modelContext: ModelContext,
-        startedAt: Date
+        startedAt: Date,
+        preflightEstimate: TokenBudgetEstimate?
     ) -> ApprovalRecords {
         let thread = PromptThreadRecord(
             projectID: plan.projectID,
@@ -758,12 +786,13 @@ final class RunDispatcher {
             providerID: plan.providerID,
             projectID: plan.projectID,
             status: RunStatus.running.rawValue,
-            startedAt: startedAt
+            startedAt: startedAt,
+            contextBudgetSummary: preflightEstimate?.summary
         )
         let usage = UsageLedgerEntry(
             providerID: plan.providerID,
             runID: outcome.runID,
-            promptTokens: 0,
+            promptTokens: preflightEstimate?.totalInputTokens ?? 0,
             completionTokens: 0,
             cachedPromptTokens: 0,
             reasoningTokens: 0,
@@ -772,6 +801,7 @@ final class RunDispatcher {
             durationSeconds: 0,
             preprocessingSeconds: preprocessingSeconds,
             sessionSeconds: 0,
+            limitWindow: preflightEstimate?.ledgerLimitWindow ?? "manual",
             createdAt: startedAt
         )
         let event = CoordinationEventRecord(
@@ -822,7 +852,8 @@ final class RunDispatcher {
             status: RunStatus.failed.rawValue,
             startedAt: timestamp,
             endedAt: timestamp,
-            durationSeconds: 0
+            durationSeconds: 0,
+            contextBudgetSummary: preflightTokenEstimate?.summary
         )
         outcome.userFeedback = message
 
@@ -871,10 +902,25 @@ final class RunDispatcher {
         status = terminal
 
         let durationSeconds = endTimestamp.timeIntervalSince(startedAt ?? endTimestamp)
+        let stdoutBuffer = capturedLogBuffer(kind: .stdout)
+        let stderrBuffer = capturedLogBuffer(kind: .stderr)
+        let runEstimate = TokenBudgetEstimator.estimateRun(
+            plan: plan,
+            agentNotesExcerpt: preflightExcerpt,
+            workspacePolicy: Self.workspacePolicyPrompt(for: plan),
+            projectRootPath: Self.effectiveWorkingPath(for: plan),
+            standardOutput: stdoutBuffer,
+            standardError: stderrBuffer,
+            cachedPromptTokens: cachedPromptTokens,
+            outputTokens: completionTokens,
+            reasoningTokens: reasoningTokens
+        )
+        preflightTokenEstimate = runEstimate
 
         if let outcome = activeOutcome {
             outcome.endedAt = endTimestamp
             outcome.durationSeconds = durationSeconds
+            outcome.contextBudgetSummary = runEstimate.summary
             outcome.status = {
                 switch terminal {
                 case .succeeded: return RunStatus.succeeded.rawValue
@@ -888,7 +934,45 @@ final class RunDispatcher {
             } ?? (terminal == .cancelled ? "cancelled" : "noExit")
             if let errorMessage {
                 outcome.userFeedback = errorMessage
+                if errorMessage.localizedCaseInsensitiveContains("context window") {
+                    let continuation = TokenBudgetEstimator.makeContinuationPlan(
+                        plan: plan,
+                        standardOutput: stdoutBuffer,
+                        standardError: stderrBuffer,
+                        errorMessage: errorMessage,
+                        estimate: runEstimate
+                    )
+                    continuationPlan = continuation
+                    outcome.continuationSummary = continuation.summary
+                    outcome.continuationPrompt = continuation.prompt
+                    appendSystem("Continuation prompt prepared (\(continuation.estimatedResumeTokens.formatted()) estimated tokens).")
+                }
             }
+        }
+
+        if let outcome = activeOutcome {
+            let segments = RunTranscriptSegmenter.segments(
+                runID: outcome.runID,
+                providerID: plan.providerID,
+                projectID: plan.projectID,
+                logs: logs,
+                createdAt: endTimestamp
+            )
+            for segment in segments {
+                modelContext.insert(RunTranscriptSegmentRecord(
+                    runID: segment.runID,
+                    providerID: segment.providerID,
+                    projectID: segment.projectID,
+                    segmentIndex: segment.segmentIndex,
+                    kind: segment.kind,
+                    text: segment.text,
+                    tokenEstimate: segment.tokenEstimate,
+                    isCompacted: segment.isCompacted,
+                    summary: segment.summary,
+                    createdAt: segment.createdAt
+                ))
+            }
+            outcome.transcriptSegmentCount = segments.count
         }
 
         if let usage = activeUsage {
@@ -896,14 +980,8 @@ final class RunDispatcher {
                 if promptTokens > 0 || completionTokens > 0 {
                     return (promptTokens, completionTokens)
                 }
-                let stdoutChars = logs
-                    .filter { $0.kind == .stdout }
-                    .reduce(0) { $0 + $1.text.count }
-                let stderrChars = logs
-                    .filter { $0.kind == .stderr }
-                    .reduce(0) { $0 + $1.text.count }
-                let promptApprox = max(plan.prompt.count / 4, 1)
-                let completionApprox = max((stdoutChars + stderrChars) / 4, 0)
+                let promptApprox = max(runEstimate.totalInputTokens, 1)
+                let completionApprox = max(runEstimate.standardOutputTokens + runEstimate.standardErrorTokens, 0)
                 return (promptApprox, completionApprox)
             }()
             usage.promptTokens = estimatedTokens.prompt
@@ -913,6 +991,7 @@ final class RunDispatcher {
             usage.durationSeconds = durationSeconds
             usage.preprocessingSeconds = preprocessingSeconds
             usage.sessionSeconds = durationSeconds
+            usage.limitWindow = runEstimate.ledgerLimitWindow
         }
 
         if let coordination = activeCoordination {

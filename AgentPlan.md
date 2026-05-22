@@ -1,6 +1,6 @@
 # AgentPlan.md - Agenic Load-Balancer Comprehensive Implementation Plan
 
-Updated: May 21, 2026
+Updated: May 22, 2026
 
 ## Active Source Truth
 
@@ -17,8 +17,9 @@ Updated: May 21, 2026
 
 - The previously reported iCloud reality gap is resolved. The iCloud checkout was fast-forwarded from the earlier Phase 7.2-era state to the pushed Phase 7.3-7.6 implementation history on `origin/main`.
 - The implementation commits now present in the active iCloud checkout include the command bar, intelligent AgentNotes preflight, Foundation Models routing tie-breaker, autonomous project manager foundation, autonomy persistence/execution wiring, dispatch hardening, UI and project settings repair, cancelled coordination cleanup, provider auth/settings/workspace task wiring, autonomy readiness polish, and settings tool alignment.
-- Sprint B from this roadmap is now implemented as an in-app Foundation Models diagnostics route. Settings > Agents can check host availability and run live command-bar metrics, run-summary, and routing tie-break probes while keeping deterministic fallback behavior intact.
-- Future work remains, but it should be treated as the next scoped roadmap work, starting with Sprint C token-budget and continuation hardening rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint B from this roadmap is implemented as an in-app Foundation Models diagnostics route. Settings > Agents can check host availability and run live command-bar metrics, run-summary, and routing tie-break probes while keeping deterministic fallback behavior intact.
+- Sprint C from this roadmap is implemented as provider-neutral token budget and continuation hardening. Prompt Router approvals now show context pressure, oversized AgentNotes preflight context is compacted before dispatch, run outcomes retain context-budget and continuation metadata, long stdout/stderr transcripts are segmented for durable storage/snapshots, and context-window failures prepare a safe follow-up prompt instead of only reporting the failure.
+- Future work remains, but it should be treated as the next scoped roadmap work, starting with Sprint D provider probe and routing telemetry hardening rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -36,6 +37,7 @@ Updated: May 21, 2026
 - Projects view with add/edit/delete, per-workspace settings, persisted folder metadata, prompt excerpt sync, AgentNotes regeneration, and nested task/workspace navigation.
 - In-app Settings sheet with editable generation, context, tools, agents, server, memory, storage, and about surfaces.
 - Tool permission defaults for tool calling, shell tools, network search, filesystem writes, mutating-command approval, default working path, default temporary path, context compaction, and summary caps.
+- Provider-neutral token budgeting, preflight AgentNotes compaction, durable transcript segment storage, snapshot round-trip support for transcript segments, and continuation prompts for context-window failures.
 - AgentNotes coordination with NSFileCoordinator-backed reads/writes, preflight prompt injection, active-conflict filtering, reconciliation, stale dispatch cleanup, and regenerated ledger projection.
 - First-class `cancelled` coordination status so harmless cancelled runs no longer appear as active blockers.
 - Phase 7.1 Foundation Models in-process runner adapter and availability-gated streaming path.
@@ -53,7 +55,7 @@ Updated: May 21, 2026
 - Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
 - CloudKit sync is wired and status is observable, but "perfect cross-machine sync" needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
-- Context compaction is implemented for summarizer inputs and run telemetry, but a full long-running autonomous continuation loop still needs stronger chunking, resumable transcript storage, and provider-specific context-budget strategies.
+- Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy is deliberately approval-gated and policy-aware. It is not yet a fully trusted autopilot that can safely perform arbitrary repo mutation, validation, commit, push, and recovery without user approval.
 - UI validation has launch and full-scheme coverage, but screenshot-level visual regression, resized-window flows, settings subpanes, provider setup edge cases, and run-sheet failure states need broader automated coverage.
 - Conflict resolution has deterministic primitives and audit records, but the user-facing "perfect conflict resolution" promise still needs richer conflict visualization, dry-run previews, reversible operation envelopes, and recovery drills.
@@ -61,7 +63,7 @@ Updated: May 21, 2026
 ## Deferred Future Queue
 
 - Live Foundation Models smoke suite: run command bar, run summary, AgentNotes intelligence, and tie-breaker against real on-device Foundation Models and record observed availability states.
-- Token-aware prompt compaction: add pre-run token budget estimation, source-file summarization, transcript chunking, resumable continuation prompts, and provider-specific context guardrails.
+- Provider-specific continuation loops: add source-file summarization, provider-specific context windows, bounded resume execution policies, and continuation approval flows that can safely chain long runs without losing auditability.
 - Provider probe hardening: add real auth/quota/version probes for each configured provider, normalize failures, and feed trendline reliability back into routing.
 - Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
 - Conflict center UI: expose operation envelopes, divergent records, proposed merges, rollback options, and "restore into new local copy" flows in a dedicated inspector.
@@ -167,19 +169,28 @@ Validation:
 
 ### Sprint C - Token Budget And Continuation Hardening
 
+Status: implemented in this checkpoint.
+
 Goal: make long runs efficient and resumable instead of merely detecting context overflow after a provider fails.
 
-- Add a provider-neutral `TokenBudgetEstimator` with provider-specific overrides.
-- Estimate prompt, AgentNotes, project context, stdout, stderr, cached, output, and reasoning tokens before dispatch.
-- Compact preflight context before dispatch when the estimated prompt exceeds a configured threshold.
-- Chunk long transcripts into durable run segments.
-- Store continuation summaries that can be fed into follow-up runs.
-- Add UI warnings for high-context runs before the user approves dispatch.
+- Added a provider-neutral `TokenBudgetEstimator` with provider-specific context-window overrides and configurable thresholds.
+- Estimate prompt, AgentNotes, workspace policy, project path, stdout, stderr, cached, output, and reasoning token pressure before and after dispatch.
+- Compact AgentNotes preflight context before provider dispatch when the estimated prompt exceeds the configured threshold.
+- Chunk stdout/stderr transcripts into durable `RunTranscriptSegmentRecord` rows and snapshot DTOs.
+- Store context-budget summaries, continuation summaries, and continuation prompts on run outcomes.
+- Add approval-sheet warnings for high-context runs before the user approves dispatch.
+- Add outcome-sheet continuation UI with copyable follow-up prompt when a provider reports context-window overflow.
 
 Acceptance:
 
-- Oversized prompts are reduced or split before provider dispatch when possible.
+- Oversized AgentNotes preflight context is reduced before provider dispatch when possible.
 - Context-window failures remain visible as failures, but the app offers a safe continuation plan.
+- Long transcripts survive as segmented records that can be restored through snapshots.
+
+Validation:
+
+- Focused Sprint C tests passed on May 22, 2026 with isolated USB roots: `xcodebuild test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -derivedDataPath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_20260522_003925/DerivedData" -resultBundlePath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_20260522_003925/Results/SprintC_Focused.xcresult" ... -only-testing:"Agenic Load-BalancerTests/TokenBudgetTests" -only-testing:"Agenic Load-BalancerTests/RunPipelineTests"` returned `** TEST SUCCEEDED **`.
+- Full app build validation passed on May 22, 2026 with isolated USB roots under `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_Build_20260522_010506`, returning `** BUILD SUCCEEDED **`.
 
 ### Sprint D - Provider Probe And Routing Telemetry Hardening
 
@@ -303,4 +314,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint B checkpoint is validated and pushed, the next best implementation unit is Sprint C: token budget and continuation hardening. That is the narrowest high-value step toward making long autonomous runs efficient, resumable, and honest before provider context windows are exhausted.
+After this Sprint C checkpoint is validated and pushed, the next best implementation unit is Sprint D: provider probe and routing telemetry hardening. That is the narrowest high-value step toward making provider recommendations reflect live auth, quota, reliability, and recent failure state instead of mostly static configuration plus historical outcomes.

@@ -56,9 +56,25 @@ struct PayloadBody: Sendable, Codable, Hashable {
     var usageEntries: [UsageLedgerDTO]
     var routingDecisions: [RoutingDecisionDTO]
     var runOutcomes: [RunOutcomeDTO]
+    var runTranscriptSegments: [RunTranscriptSegmentDTO]
     var coordinationEvents: [CoordinationEventDTO]
     var cloudSnapshots: [CloudSnapshotDTO]
     var keychainReferences: [KeychainReferenceDTO]
+
+    enum CodingKeys: String, CodingKey {
+        case projects
+        case providers
+        case providerSetups
+        case promptThreads
+        case promptMessages
+        case usageEntries
+        case routingDecisions
+        case runOutcomes
+        case runTranscriptSegments
+        case coordinationEvents
+        case cloudSnapshots
+        case keychainReferences
+    }
 
     init(
         projects: [ProjectDTO] = [],
@@ -69,6 +85,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
         usageEntries: [UsageLedgerDTO] = [],
         routingDecisions: [RoutingDecisionDTO] = [],
         runOutcomes: [RunOutcomeDTO] = [],
+        runTranscriptSegments: [RunTranscriptSegmentDTO] = [],
         coordinationEvents: [CoordinationEventDTO] = [],
         cloudSnapshots: [CloudSnapshotDTO] = [],
         keychainReferences: [KeychainReferenceDTO] = []
@@ -81,9 +98,26 @@ struct PayloadBody: Sendable, Codable, Hashable {
         self.usageEntries = usageEntries
         self.routingDecisions = routingDecisions
         self.runOutcomes = runOutcomes
+        self.runTranscriptSegments = runTranscriptSegments
         self.coordinationEvents = coordinationEvents
         self.cloudSnapshots = cloudSnapshots
         self.keychainReferences = keychainReferences
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projects = try container.decodeIfPresent([ProjectDTO].self, forKey: .projects) ?? []
+        providers = try container.decodeIfPresent([ProviderProfileDTO].self, forKey: .providers) ?? []
+        providerSetups = try container.decodeIfPresent([ProviderSetupDTO].self, forKey: .providerSetups) ?? []
+        promptThreads = try container.decodeIfPresent([PromptThreadDTO].self, forKey: .promptThreads) ?? []
+        promptMessages = try container.decodeIfPresent([PromptMessageDTO].self, forKey: .promptMessages) ?? []
+        usageEntries = try container.decodeIfPresent([UsageLedgerDTO].self, forKey: .usageEntries) ?? []
+        routingDecisions = try container.decodeIfPresent([RoutingDecisionDTO].self, forKey: .routingDecisions) ?? []
+        runOutcomes = try container.decodeIfPresent([RunOutcomeDTO].self, forKey: .runOutcomes) ?? []
+        runTranscriptSegments = try container.decodeIfPresent([RunTranscriptSegmentDTO].self, forKey: .runTranscriptSegments) ?? []
+        coordinationEvents = try container.decodeIfPresent([CoordinationEventDTO].self, forKey: .coordinationEvents) ?? []
+        cloudSnapshots = try container.decodeIfPresent([CloudSnapshotDTO].self, forKey: .cloudSnapshots) ?? []
+        keychainReferences = try container.decodeIfPresent([KeychainReferenceDTO].self, forKey: .keychainReferences) ?? []
     }
 
     /// Total record count across all model collections.
@@ -103,6 +137,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.usageLedger: usageEntries.count,
             ModelKey.routingDecision: routingDecisions.count,
             ModelKey.runOutcome: runOutcomes.count,
+            ModelKey.runTranscriptSegment: runTranscriptSegments.count,
             ModelKey.coordination: coordinationEvents.count,
             ModelKey.cloudSnapshot: cloudSnapshots.count,
             ModelKey.keychainReference: keychainReferences.count,
@@ -121,6 +156,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.usageLedger: Set(usageEntries.map(\.identifier)),
             ModelKey.routingDecision: Set(routingDecisions.map(\.identifier)),
             ModelKey.runOutcome: Set(runOutcomes.map(\.identifier)),
+            ModelKey.runTranscriptSegment: Set(runTranscriptSegments.map(\.identifier)),
             ModelKey.coordination: Set(coordinationEvents.map(\.identifier)),
             ModelKey.cloudSnapshot: Set(cloudSnapshots.map(\.identifier)),
             ModelKey.keychainReference: Set(keychainReferences.map(\.identifier)),
@@ -139,6 +175,7 @@ enum ModelKey {
     static let usageLedger = "UsageLedgerEntry"
     static let routingDecision = "RoutingDecisionRecord"
     static let runOutcome = "RunOutcomeRecord"
+    static let runTranscriptSegment = "RunTranscriptSegmentRecord"
     static let coordination = "CoordinationEventRecord"
     static let cloudSnapshot = "CloudSnapshotRecord"
     static let keychainReference = "KeychainReferenceRecord"
@@ -152,6 +189,7 @@ enum ModelKey {
         usageLedger: "Usage entries",
         routingDecision: "Routing decisions",
         runOutcome: "Run outcomes",
+        runTranscriptSegment: "Run transcript segments",
         coordination: "Coordination events",
         cloudSnapshot: "Snapshot metadata",
         keychainReference: "Keychain references",
@@ -166,6 +204,7 @@ enum ModelKey {
         usageLedger,
         routingDecision,
         runOutcome,
+        runTranscriptSegment,
         coordination,
         cloudSnapshot,
         keychainReference,
@@ -538,6 +577,10 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
     let aiFilesChangedJSON: String?
     let aiSuggestedAccuracyRating: String?
     let aiSummaryGeneratedAt: Date?
+    let contextBudgetSummary: String?
+    let continuationSummary: String?
+    let continuationPrompt: String?
+    let transcriptSegmentCount: Int?
 
     init(from record: RunOutcomeRecord) {
         identifier = record.identifier
@@ -559,6 +602,10 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
         aiFilesChangedJSON = record.aiFilesChangedJSON
         aiSuggestedAccuracyRating = record.aiSuggestedAccuracyRating
         aiSummaryGeneratedAt = record.aiSummaryGeneratedAt
+        contextBudgetSummary = record.contextBudgetSummary
+        continuationSummary = record.continuationSummary
+        continuationPrompt = record.continuationPrompt
+        transcriptSegmentCount = record.transcriptSegmentCount
     }
 
     func makeRecord() -> RunOutcomeRecord {
@@ -581,7 +628,56 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
             aiTestsFailed: aiTestsFailed,
             aiFilesChangedJSON: aiFilesChangedJSON ?? "[]",
             aiSuggestedAccuracyRating: aiSuggestedAccuracyRating,
-            aiSummaryGeneratedAt: aiSummaryGeneratedAt
+            aiSummaryGeneratedAt: aiSummaryGeneratedAt,
+            contextBudgetSummary: contextBudgetSummary,
+            continuationSummary: continuationSummary,
+            continuationPrompt: continuationPrompt,
+            transcriptSegmentCount: transcriptSegmentCount ?? 0
+        )
+    }
+}
+
+struct RunTranscriptSegmentDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let runID: String
+    let providerID: String
+    let projectID: String?
+    let segmentIndex: Int
+    let kind: String
+    let text: String
+    let tokenEstimate: Int
+    let isCompacted: Bool
+    let summary: String
+    let createdAt: Date
+
+    init(from record: RunTranscriptSegmentRecord) {
+        identifier = record.identifier
+        runID = record.runID
+        providerID = record.providerID
+        projectID = record.projectID
+        segmentIndex = record.segmentIndex
+        kind = record.kind
+        text = record.text
+        tokenEstimate = record.tokenEstimate
+        isCompacted = record.isCompacted
+        summary = record.summary
+        createdAt = record.createdAt
+    }
+
+    func makeRecord() -> RunTranscriptSegmentRecord {
+        RunTranscriptSegmentRecord(
+            identifier: identifier,
+            runID: runID,
+            providerID: providerID,
+            projectID: projectID,
+            segmentIndex: segmentIndex,
+            kind: kind,
+            text: text,
+            tokenEstimate: tokenEstimate,
+            isCompacted: isCompacted,
+            summary: summary,
+            createdAt: createdAt
         )
     }
 }

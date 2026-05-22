@@ -105,6 +105,8 @@ enum SnapshotPipeline {
             .map(RoutingDecisionDTO.init(from:))
         let runOutcomes = try context.fetch(FetchDescriptor<RunOutcomeRecord>())
             .map(RunOutcomeDTO.init(from:))
+        let runTranscriptSegments = try context.fetch(FetchDescriptor<RunTranscriptSegmentRecord>())
+            .map(RunTranscriptSegmentDTO.init(from:))
         let coordinationEvents = try context.fetch(FetchDescriptor<CoordinationEventRecord>())
             .map(CoordinationEventDTO.init(from:))
         let cloudSnapshots = try context.fetch(FetchDescriptor<CloudSnapshotRecord>())
@@ -121,6 +123,7 @@ enum SnapshotPipeline {
             usageEntries: usageEntries,
             routingDecisions: routingDecisions,
             runOutcomes: runOutcomes,
+            runTranscriptSegments: runTranscriptSegments,
             coordinationEvents: coordinationEvents,
             cloudSnapshots: cloudSnapshots,
             keychainReferences: keychainReferences
@@ -249,6 +252,14 @@ enum SnapshotPipeline {
                 }
             }
         }
+        func mergeTranscriptSegments() {
+            let existing = liveIDs[ModelKey.runTranscriptSegment] ?? []
+            for dto in payload.body.runTranscriptSegments {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
         func mergeCoordination() {
             let existing = liveIDs[ModelKey.coordination] ?? []
             for dto in payload.body.coordinationEvents {
@@ -282,6 +293,7 @@ enum SnapshotPipeline {
         mergeUsage()
         mergeDecisions()
         mergeOutcomes()
+        mergeTranscriptSegments()
         mergeCoordination()
         mergeCloudSnapshots()
         mergeKeychainReferences()
@@ -301,6 +313,7 @@ enum SnapshotPipeline {
         for dto in body.usageEntries { context.insert(dto.makeRecord()) }
         for dto in body.routingDecisions { context.insert(dto.makeRecord()) }
         for dto in body.runOutcomes { context.insert(dto.makeRecord()) }
+        for dto in body.runTranscriptSegments { context.insert(dto.makeRecord()) }
         for dto in body.coordinationEvents { context.insert(dto.makeRecord()) }
         for dto in body.cloudSnapshots { context.insert(dto.makeRecord()) }
         for dto in body.keychainReferences { context.insert(dto.makeRecord()) }
@@ -315,6 +328,7 @@ enum SnapshotPipeline {
         for record in try context.fetch(FetchDescriptor<UsageLedgerEntry>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<RoutingDecisionRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<RunOutcomeRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<RunTranscriptSegmentRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<CoordinationEventRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<CloudSnapshotRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<KeychainReferenceRecord>()) { context.delete(record) }

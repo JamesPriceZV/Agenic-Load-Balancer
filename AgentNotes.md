@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint C token budget and continuation hardening
+  Assignee: OpenAI Codex
+  Detail: Implemented the Sprint C roadmap item from `AgentPlan.md`. Added provider-neutral token estimation with provider context-window overrides, pre-dispatch AgentNotes compaction, context-budget summaries on approval/run outcomes, durable transcript segment records, snapshot round-trip support for transcript segments, usage-ledger context windows, and continuation prompts for context-window failures. The approval sheet now shows context pressure before dispatch, and terminal run sheets can show/copy a safe follow-up prompt when a provider fails because the context window was exceeded.
+  Run: local Sprint C implementation and validation turn on May 22, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: `git diff --check` produced no output. Focused Sprint C tests passed with isolated USB roots: `xcodebuild test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -derivedDataPath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_20260522_003925/DerivedData" -resultBundlePath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_20260522_003925/Results/SprintC_Focused.xcresult" ... -only-testing:"Agenic Load-BalancerTests/TokenBudgetTests" -only-testing:"Agenic Load-BalancerTests/RunPipelineTests"` returned `** TEST SUCCEEDED **`. Full app build under `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintC_Build_20260522_010506` returned `** BUILD SUCCEEDED **`.
+
 - [checkpointed] Sprint B Foundation Models diagnostics route
   Assignee: OpenAI Codex
   Detail: Implemented the live Foundation Models verification route from `AgentPlan.md` Sprint B. Added a diagnostics runner that checks `SystemLanguageModel.default.availability`, skips live probes with explicit reasons when unavailable, and exercises command-bar metrics, guided run-summary, and close-score routing tie-break paths when the host can run Foundation Models. Wired the diagnostics into Settings > Agents so the user can observe availability, successful probes, skipped probes, unsupported locale/language, refusal/safety, context-window, and generic failure states without blocking deterministic routing or dispatch behavior.

@@ -1258,9 +1258,11 @@ struct ApprovalSheetView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if dispatcher.status == .idle {
                         agentNotesPreflightPanel
+                        contextBudgetPanel
                         approvalSummary
                     } else {
                         runStatusBanner
+                        continuationPanel
                         if plan.mode == .commitPushCheckpoint || dispatcher.checkpointStatus != .notRequested {
                             checkpointBanner
                         }
@@ -1427,6 +1429,74 @@ struct ApprovalSheetView: View {
     }
 
     @ViewBuilder
+    private var contextBudgetPanel: some View {
+        let estimate = approvalTokenEstimate
+        GlassPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Context budget")
+                        .font(.headline)
+                    Spacer()
+                    Text(estimate.risk.label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(contextBudgetColor(estimate.risk))
+                }
+                Text(estimate.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    budgetMetric("Prompt", estimate.userPromptTokens)
+                    budgetMetric("AgentNotes", estimate.agentNotesTokens)
+                    budgetMetric("Policy", estimate.workspacePolicyTokens)
+                    budgetMetric("Path", estimate.projectContextTokens)
+                }
+                if estimate.needsCompaction {
+                    Label(
+                        plan.contextCompactionEnabled
+                            ? "Preflight context will be compacted before dispatch if it stays above the threshold."
+                            : "Context compaction is disabled for this workspace.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(plan.contextCompactionEnabled ? Color.orange : Color.red)
+                }
+            }
+        }
+    }
+
+    private func budgetMetric(_ label: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value.formatted())
+                .font(.caption.monospacedDigit())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var approvalTokenEstimate: TokenBudgetEstimate {
+        TokenBudgetEstimator.estimatePreflight(
+            userPrompt: plan.prompt,
+            agentNotesExcerpt: preflightSummary?.promptInjectionText ?? preflightExcerpt,
+            workspacePolicy: RunDispatcher.workspacePolicyPrompt(for: plan),
+            projectRootPath: RunDispatcher.effectiveWorkingPath(for: plan),
+            providerID: plan.providerID,
+            contextCompactionEnabled: plan.contextCompactionEnabled,
+            thresholdTokens: plan.contextCompactionThresholdTokens
+        )
+    }
+
+    private func contextBudgetColor(_ risk: TokenBudgetRisk) -> Color {
+        switch risk {
+        case .low: Color.green
+        case .elevated: Color.accentColor
+        case .high: Color.orange
+        case .overLimit: Color.red
+        }
+    }
+
+    @ViewBuilder
     private var checkpointBanner: some View {
         GlassPanel {
             HStack(spacing: 10) {
@@ -1583,6 +1653,44 @@ struct ApprovalSheetView: View {
     }
 
     @ViewBuilder
+    private var continuationPanel: some View {
+        if let continuation = dispatcher.continuationPlan {
+            GlassPanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label("Continuation ready", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(continuation.estimatedResumeTokens.formatted()) est. tokens")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(continuation.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    ScrollView {
+                        Text(continuation.prompt)
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                    .frame(maxHeight: 150)
+                    .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(continuation.prompt, forType: .string)
+                    } label: {
+                        Label("Copy continuation prompt", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var liveConsole: some View {
         GlassPanel {
             VStack(alignment: .leading, spacing: 8) {
@@ -1627,6 +1735,9 @@ struct ApprovalSheetView: View {
                     }
                     if dispatcher.preprocessingSeconds > 0 {
                         Label(dispatcher.preprocessingSeconds.formattedDurationSeconds, systemImage: "timer")
+                    }
+                    if let estimate = dispatcher.preflightTokenEstimate {
+                        Label("\(estimate.totalInputTokens.formatted()) est input", systemImage: "gauge.with.dots.needle.50percent")
                     }
                     Spacer()
                     if let runID = dispatcher.activeRunID {

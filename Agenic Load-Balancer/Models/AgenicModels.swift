@@ -21,6 +21,7 @@ enum AgenicDataModel {
         UsageLedgerEntry.self,
         RoutingDecisionRecord.self,
         RunOutcomeRecord.self,
+        RunTranscriptSegmentRecord.self,
         CoordinationEventRecord.self,
         CloudSnapshotRecord.self,
         KeychainReferenceRecord.self,
@@ -467,6 +468,12 @@ final class RunOutcomeRecord {
     /// `accuracyRating` field so user input is never overwritten.
     var aiSuggestedAccuracyRating: String?
     var aiSummaryGeneratedAt: Date?
+    /// Sprint C: context-budget and continuation metadata. Optional/additive
+    /// so older CloudKit records and archives migrate without data loss.
+    var contextBudgetSummary: String?
+    var continuationSummary: String?
+    var continuationPrompt: String?
+    var transcriptSegmentCount: Int = 0
 
     init(
         identifier: String = UUID().uuidString,
@@ -487,7 +494,11 @@ final class RunOutcomeRecord {
         aiTestsFailed: Int? = nil,
         aiFilesChangedJSON: String = "[]",
         aiSuggestedAccuracyRating: String? = nil,
-        aiSummaryGeneratedAt: Date? = nil
+        aiSummaryGeneratedAt: Date? = nil,
+        contextBudgetSummary: String? = nil,
+        continuationSummary: String? = nil,
+        continuationPrompt: String? = nil,
+        transcriptSegmentCount: Int = 0
     ) {
         self.identifier = identifier
         self.runID = runID
@@ -508,6 +519,51 @@ final class RunOutcomeRecord {
         self.aiFilesChangedJSON = aiFilesChangedJSON
         self.aiSuggestedAccuracyRating = aiSuggestedAccuracyRating
         self.aiSummaryGeneratedAt = aiSummaryGeneratedAt
+        self.contextBudgetSummary = contextBudgetSummary
+        self.continuationSummary = continuationSummary
+        self.continuationPrompt = continuationPrompt
+        self.transcriptSegmentCount = transcriptSegmentCount
+    }
+}
+
+@Model
+final class RunTranscriptSegmentRecord {
+    var identifier: String = ""
+    var runID: String = ""
+    var providerID: String = ""
+    var projectID: String?
+    var segmentIndex: Int = 0
+    var kind: String = "mixed"
+    var text: String = ""
+    var tokenEstimate: Int = 0
+    var isCompacted: Bool = false
+    var summary: String = ""
+    var createdAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        runID: String,
+        providerID: String,
+        projectID: String? = nil,
+        segmentIndex: Int,
+        kind: String = "mixed",
+        text: String,
+        tokenEstimate: Int,
+        isCompacted: Bool = false,
+        summary: String = "",
+        createdAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.runID = runID
+        self.providerID = providerID
+        self.projectID = projectID
+        self.segmentIndex = segmentIndex
+        self.kind = kind
+        self.text = text
+        self.tokenEstimate = tokenEstimate
+        self.isCompacted = isCompacted
+        self.summary = summary
+        self.createdAt = createdAt
     }
 }
 

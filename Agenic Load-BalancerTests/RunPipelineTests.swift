@@ -36,7 +36,36 @@ struct RunPipelineTests {
         return try ModelContainer(for: AgenicDataModel.schema, configurations: [configuration])
     }
 
-    private static func makePlan(prompt: String = "Implement the dashboard heatmap.") -> RunPlan {
+    private final class CommandCaptureBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedCommand: AgentCommand?
+
+        var command: AgentCommand? {
+            lock.withLock { storedCommand }
+        }
+
+        func set(_ command: AgentCommand) {
+            lock.withLock {
+                storedCommand = command
+            }
+        }
+    }
+
+    private struct CapturingRunner: AgentRunning {
+        let capture: CommandCaptureBox
+        let steps: [ScriptedAgentProcessRunner.Step]
+
+        func stream(command: AgentCommand) -> AsyncThrowingStream<AgentProcessEvent, Error> {
+            capture.set(command)
+            return ScriptedAgentProcessRunner(steps: steps).stream(command: command)
+        }
+    }
+
+    private static func makePlan(
+        prompt: String = "Implement the dashboard heatmap.",
+        contextCompactionEnabled: Bool = true,
+        contextCompactionThresholdTokens: Int = 120_000
+    ) -> RunPlan {
         let draft = ProviderCatalog.defaultProfiles[0]
         let snapshot = AgentProviderSnapshot(
             identifier: draft.identifier,
@@ -76,7 +105,9 @@ struct RunPipelineTests {
             projectRootPath: nil,
             mode: .implementation,
             score: score,
-            promptExcerptSyncEnabled: false
+            promptExcerptSyncEnabled: false,
+            contextCompactionEnabled: contextCompactionEnabled,
+            contextCompactionThresholdTokens: contextCompactionThresholdTokens
         )
     }
 
@@ -272,6 +303,62 @@ struct RunPipelineTests {
         #expect(usage.cachedPromptTokens == 4_986_496)
         #expect(usage.reasoningTokens == 6_012)
         #expect(usage.preprocessingSeconds >= 0)
+    }
+
+    @Test func oversizedPreflightContextIsCompactedBeforeDispatch() async throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let capture = CommandCaptureBox()
+        let runner = CapturingRunner(capture: capture, steps: [.finished(exitCode: 0)])
+        let dispatcher = Self.makeDispatcher(runner: runner)
+        let notes = """
+        start-active-claim
+        \(String(repeating: "middle historical coordination line\n", count: 600))
+        tail-active-claim
+        """
+
+        dispatcher.dispatch(
+            plan: Self.makePlan(
+                prompt: "Review the current implementation.",
+                contextCompactionThresholdTokens: 1_200
+            ),
+            agentNotesExcerpt: notes,
+            modelContext: context
+        )
+        await dispatcher.awaitTermination()
+
+        let stdin = try #require(capture.command?.standardInput)
+        #expect(stdin.contains("[compacted AgentNotes preflight"))
+        #expect(stdin.contains("tail-active-claim"))
+        #expect(dispatcher.preflightTokenEstimate?.totalInputTokens ?? 0 <= 1_200)
+
+        let usage = try #require(try context.fetch(FetchDescriptor<UsageLedgerEntry>()).first)
+        #expect(usage.limitWindow.contains("context:"))
+    }
+
+    @Test func contextWindowFailureStoresContinuationPromptAndTranscriptSegments() async throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let runner = ScriptedAgentProcessRunner(steps: [
+            .stdout("Started analysis."),
+            .stdout(String(repeating: "large transcript line\n", count: 260)),
+            .stderr("Provider error: exceeded the available context window."),
+            .finished(exitCode: 0),
+        ])
+        let dispatcher = Self.makeDispatcher(runner: runner)
+
+        dispatcher.dispatch(plan: Self.makePlan(), modelContext: context)
+        await dispatcher.awaitTermination()
+
+        #expect(dispatcher.status == .failed)
+        let outcome = try #require(try context.fetch(FetchDescriptor<RunOutcomeRecord>()).first)
+        #expect(outcome.continuationPrompt?.contains("Continue the previous") == true)
+        #expect(outcome.continuationSummary?.contains("context window") == true)
+        #expect(outcome.transcriptSegmentCount > 0)
+
+        let segments = try context.fetch(FetchDescriptor<RunTranscriptSegmentRecord>())
+        #expect(!segments.isEmpty)
+        #expect(segments.first?.tokenEstimate ?? 0 > 0)
     }
 
     @Test func successfulRunCapturesDurationAndOutcomeStatus() async throws {
