@@ -85,21 +85,24 @@ struct DeterministicGoalPlanner: GoalPlanning {
                     detail: "Dispatch the best provider for the approved task, stream logs, and record outcomes.",
                     mode: .implementation,
                     dependencyTitles: ["Create implementation plan"],
-                    validationCommand: validationCommand(for: request.projectRootPath)
+                    validationCommand: validationCommand(for: request)
                 ),
                 AutonomousTaskDraft(
                     title: "Validate and checkpoint",
                     detail: "Run validation gates, record results, update AgentNotes, and checkpoint only after approval.",
                     mode: .testBuild,
                     dependencyTitles: ["Execute approved implementation"],
-                    validationCommand: validationCommand(for: request.projectRootPath)
+                    validationCommand: validationCommand(for: request)
                 ),
             ]
         )
     }
 
-    private func validationCommand(for rootPath: String?) -> String? {
-        guard rootPath != nil else { return nil }
+    private func validationCommand(for request: AutonomousGoalRequest) -> String? {
+        guard request.projectRootPath != nil else { return nil }
+        if let command = request.autonomyPolicy.validationCommands.first {
+            return command
+        }
         return """
         DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO test
         """
@@ -291,6 +294,10 @@ enum AutonomyPersistence {
             policy: policy
         )
         if case .denied(let reason) = decision {
+            throw AutonomyExecutionError.denied(reason)
+        }
+        let commandDecision = AutonomyPolicyEvaluator().evaluateCommand(command, policy: policy)
+        if case .denied(let reason) = commandDecision {
             throw AutonomyExecutionError.denied(reason)
         }
 

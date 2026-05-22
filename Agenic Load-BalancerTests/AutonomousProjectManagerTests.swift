@@ -41,6 +41,21 @@ struct AutonomousProjectManagerTests {
         #expect(draft.tasks.contains { $0.validationCommand?.contains("xcodebuild") == true })
     }
 
+    @Test func deterministicPlannerUsesTrustLaneValidationCommand() async throws {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .smallFileEdits,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+        let request = Self.request(policy: policy)
+
+        let draft = try await AutonomousProjectManager().draftPlan(request: request)
+
+        let validationTask = try #require(draft.tasks.first { $0.title == "Validate and checkpoint" })
+        #expect(validationTask.validationCommand == policy.validationCommands.first)
+        #expect(validationTask.validationCommand?.contains("arch=arm64") == true)
+    }
+
     @Test func managerRequiresApprovalForImplementationUnderDefaultPolicy() async throws {
         let request = Self.request()
         let task = AutonomousTaskDraft(

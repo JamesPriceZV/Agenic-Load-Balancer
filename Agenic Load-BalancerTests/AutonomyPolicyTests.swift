@@ -63,6 +63,105 @@ struct AutonomyPolicyTests {
         #expect(decision == .denied("Observe-only autonomy cannot dispatch runs."))
     }
 
+    @Test func trustLaneTemplateSetsRootCommandsAndValidationGate() {
+        let template = AutonomyTrustLaneTemplate(
+            lane: .smallFileEdits,
+            rootPath: "/repo",
+            level: .proposeActions
+        )
+        let policy = template.policy
+
+        #expect(policy.trustLane == .smallFileEdits)
+        #expect(policy.allowedRootPaths == ["/repo"])
+        #expect(policy.allowedCommandPrefixes.contains("git diff --check"))
+        #expect(policy.validationCommands.first?.contains("platform=macOS,arch=arm64") == true)
+        #expect(policy.requiresCheckpointBeforeMutation)
+    }
+
+    @Test func mutationLaneRequiresRollbackEvidenceBeforeImplementation() {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .smallFileEdits,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+
+        let decision = AutonomyPolicyEvaluator().evaluateRun(
+            mode: .implementation,
+            estimatedCostUSD: 0.01,
+            policy: policy,
+            evidence: AutonomySafetyEvidence()
+        )
+
+        #expect(decision == .denied("Create a snapshot or git checkpoint before using Small File Edits."))
+    }
+
+    @Test func mutationLaneAllowsImplementationAfterSnapshotButStillRequiresApproval() {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .smallFileEdits,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+
+        let decision = AutonomyPolicyEvaluator().evaluateRun(
+            mode: .implementation,
+            estimatedCostUSD: 0.01,
+            policy: policy,
+            evidence: AutonomySafetyEvidence(hasRecentSnapshot: true)
+        )
+
+        #expect(decision == .requiresApproval("Shell-backed execution requires approval."))
+    }
+
+    @Test func docsOnlyLaneRejectsSourceWrites() {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .docsOnlyEdits,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+
+        let decision = AutonomyPolicyEvaluator().evaluateWrite(
+            path: "/repo/Agenic Load-Balancer/Services/AutonomyPolicy.swift",
+            policy: policy
+        )
+
+        #expect(decision == .requiresApproval("Path matches protected pattern."))
+    }
+
+    @Test func commandOutsideLaneAllowlistIsDenied() {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .testOnly,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+
+        let decision = AutonomyPolicyEvaluator().evaluateCommand(
+            "rm -rf /repo/tmp",
+            policy: policy
+        )
+
+        #expect(decision == .denied("Command is outside the Test Only allowlist."))
+    }
+
+    @Test func safetyReviewExplainsStopReason() {
+        let policy = AutonomyTrustLaneTemplate(
+            lane: .planOnly,
+            rootPath: "/repo",
+            level: .proposeActions
+        ).policy
+
+        let review = AutonomyPolicyEvaluator().safetyReview(
+            title: "Execute",
+            mode: .implementation,
+            estimatedCostUSD: 0.01,
+            policy: policy,
+            evidence: AutonomySafetyEvidence()
+        )
+
+        #expect(review.isBlocked)
+        #expect(review.stopReason == "Plan Only lane does not allow Implement runs.")
+        #expect(review.reasons.contains { $0.contains("Allowed roots: /repo") })
+    }
+
     @Test func autonomyModelsAreRegisteredInSchema() {
         let names = AgenicDataModel.models.map { String(describing: $0) }
 

@@ -21,7 +21,8 @@ Updated: May 22, 2026
 - Sprint C from this roadmap is implemented as provider-neutral token budget and continuation hardening. Prompt Router approvals now show context pressure, oversized AgentNotes preflight context is compacted before dispatch, run outcomes retain context-budget and continuation metadata, long stdout/stderr transcripts are segmented for durable storage/snapshots, and context-window failures prepare a safe follow-up prompt instead of only reporting the failure.
 - Sprint D from this roadmap is implemented as provider probe normalization and routing telemetry hardening. Provider probes now report auth and limit state with normalized labels, routing and command-bar actions consume recent reliability snapshots, and the dashboard/router continue to filter to configured providers by default.
 - Sprint E from this roadmap is implemented as the first Cross-Machine Conflict Center slice. The app now has a dedicated Conflicts navigation surface that previews persisted conflict records and synthetic operation-log divergence, shows local/remote envelopes, peer/snapshot warnings, dry-run resolution choices, rollback anchors, and records explicit decisions into SwiftData without mutating target entities.
-- Future work remains, but it should be treated as scoped roadmap work after Sprint E rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint F from this roadmap is implemented as trusted autopilot lane templates and safety review. Autonomy now has explicit read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency-update, and commit/push lanes with root scopes, protected paths, command allowlists, network posture, budget caps, validation commands, rollback-evidence checks, and a visible "why this is safe" review before task preparation.
+- Future work remains, but it should be treated as scoped roadmap work after Sprint F rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -43,6 +44,8 @@ Updated: May 22, 2026
 - AgentNotes coordination with NSFileCoordinator-backed reads/writes, preflight prompt injection, active-conflict filtering, reconciliation, stale dispatch cleanup, and regenerated ledger projection.
 - First-class `cancelled` coordination status so harmless cancelled runs no longer appear as active blockers.
 - Cross-Machine Conflict Center with local/remote operation-envelope previews, affected field counts, audit link extraction, stale peer warnings, snapshot rollback warnings, keep-local/accept-remote/merge/restore dry-run actions, and persisted resolution records.
+- Trusted autopilot lane templates for read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency updates, and commit/push checkpoints, including command allowlists, write allowlists, network policy, cost/file caps, validation gates, rollback-evidence requirements, and compatibility-safe policy JSON encoding.
+- Autonomy safety review UI that shows the selected lane, latest snapshot/checkpoint evidence, validation gate, per-task decision, and "why this is safe" reasoning before an approval-gated run can be prepared.
 - Phase 7.1 Foundation Models in-process runner adapter and availability-gated streaming path.
 - Phase 7.2 structured run summary support using framework-independent values plus live Foundation Models implementation behind availability gates.
 - Phase 7.3 natural-language tool-calling command bar with rank, dispatch draft, provider probe, snapshot draft, AgentNotes reconcile, and dashboard metrics actions.
@@ -59,7 +62,7 @@ Updated: May 22, 2026
 - CloudKit sync is wired, status is observable, and Sprint E exposes a conflict inspection/resolution surface. "Perfect cross-machine sync" still needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
-- Autonomy is deliberately approval-gated and policy-aware. It is not yet a fully trusted autopilot that can safely perform arbitrary repo mutation, validation, commit, push, and recovery without user approval.
+- Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
 - UI validation has launch and full-scheme coverage, but screenshot-level visual regression, resized-window flows, settings subpanes, provider setup edge cases, and run-sheet failure states need broader automated coverage.
 - Conflict resolution now has deterministic primitives, audit records, and a user-facing dry-run Conflict Center. The remaining "perfect conflict resolution" promise needs live cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows.
 
@@ -70,7 +73,7 @@ Updated: May 22, 2026
 - Provider-specific live probe maintenance: expand the normalized Sprint D probe layer with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
 - Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
 - Conflict resolution expansion: add entity-specific merge policies, execute real restore-into-copy workflows, and run multi-device recovery drills with intentionally divergent CloudKit records.
-- Trusted-autopilot lanes: define a staged path from observe-only to plan-only to proposed-action to approved-execution to tightly bounded trusted automation.
+- Trusted-autopilot expansion: build on the new Sprint F lane templates with richer live evidence collection, automatic snapshot creation, bounded multi-step execution, and per-lane recovery drills.
 - Autonomous loop scheduler: persist goals, break them into bounded sprints, run validation gates, checkpoint results, ask for approvals at risk boundaries, and stop on uncertainty.
 - Provider setup UX: add status badges for account login freshness, API-key reference health, missing binary remediation, and per-provider docs snapshots.
 - Visual regression coverage: capture resized window, full screen, command bar, settings, projects/workspace task tree, providers, restore, and autonomy views across light/dark appearances.
@@ -250,18 +253,29 @@ Validation:
 
 ### Sprint F - Trusted Autopilot Lanes
 
+Status: implemented in this checkpoint as the policy-template and safety-review slice. Fully unattended multi-step execution remains Sprint F/G follow-up work.
+
 Goal: make autonomy feel inevitable, safe, and beautiful without skipping safety boundaries.
 
-- Define scoped trust lanes for read-only review, plan-only, test-only, small-file edits, docs-only edits, dependency updates, and commit/push.
-- Add per-workspace policy templates with explicit allowed roots, protected paths, command allowlists, network policy, budget caps, and validation gates.
-- Require a successful snapshot or git checkpoint before higher-risk mutation lanes.
-- Add an autonomous loop that executes one bounded task at a time, records evidence, runs validation, and stops on uncertainty.
-- Add a reviewable "why this is safe" panel before each escalation.
+- Added scoped trust lanes for read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency updates, and commit/push checkpoints.
+- Added per-workspace policy templates with explicit allowed roots, protected paths, write allowlists, command allowlists, network policy, budget caps, max changed-file caps, and validation gate commands.
+- Require a successful snapshot or git checkpoint before mutation lanes can prepare implementation/repair/commit runs; dependency-update lanes require a snapshot specifically.
+- Added command allowlist enforcement for validation gates and policy review.
+- Added compatibility-safe decoding for previously persisted policy JSON so existing `AutonomyPolicyRecord` rows remain readable.
+- Added an Autonomy screen lane picker, rollback evidence badges, selected validation gate, per-task safety decision, and "why this is safe" reasoning before each approval-gated run preparation.
+- Kept execution one bounded task at a time through the existing approval sheet; unattended multi-task loops remain deliberately deferred.
 
 Acceptance:
 
-- The user can say a goal, see a bounded plan, approve a trust lane, and watch the app progress through reversible, audited steps.
-- The app stops safely when policy, validation, sync, provider, or budget state becomes uncertain.
+- The user can say a goal, choose a bounded trust lane, see a scoped plan, and review safety reasons before approving a run.
+- The app stops safely when lane, rollback evidence, command allowlist, protected path, network, budget, or file-count policy becomes uncertain.
+
+Validation:
+
+- `git diff --check` produced no output before validation.
+- Build validation passed with USB roots under `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintF_20260522_093004`, returning `** BUILD SUCCEEDED **`.
+- Focused Sprint F policy/manager tests passed with `xcodebuild ... -only-testing:"Agenic Load-BalancerTests/AutonomyPolicyTests" -only-testing:"Agenic Load-BalancerTests/AutonomousProjectManagerTests"`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintF_20260522_093004/Results/SprintF_Focused.xcresult`.
+- Automated UI launch validation passed in light and dark appearances; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintF_20260522_093004/Results/SprintF_UILaunch.xcresult`.
 
 ### Sprint G - UI Flow And Visual Regression Coverage
 
@@ -340,4 +354,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint E checkpoint is validated and pushed, the next best implementation unit is Sprint F: trusted autopilot lanes. Provider probe work should continue as live-provider maintenance, and conflict resolution should continue through live multi-machine recovery drills, but the first inspectable Conflict Center slice is now implemented.
+After this Sprint F checkpoint is validated and pushed, the next best implementation unit is Sprint G: UI flow and visual regression coverage. Provider probe work should continue as live-provider maintenance, and conflict resolution should continue through live multi-machine recovery drills, but the first trusted-lane safety surface is now implemented.

@@ -29,6 +29,7 @@ struct AutonomyControlCenterView: View {
     let usageEntries: [UsageLedgerEntry]
     let outcomes: [RunOutcomeRecord]
     let coordinationEvents: [CoordinationEventRecord]
+    let snapshots: [CloudSnapshotRecord]
     let draftPlan: @Sendable (AutonomousGoalRequest) async throws -> AutonomousPlanDraft
     let validationRunner: any ValidationGateRunning
 
@@ -36,6 +37,7 @@ struct AutonomyControlCenterView: View {
     @State private var goalTitle = ""
     @State private var goalDescription = ""
     @State private var level: AutonomyLevel = .proposeActions
+    @State private var trustLane: AutonomyTrustLane = .smallFileEdits
     @State private var draft: AutonomousPlanDraft?
     @State private var persistedPlan: PersistedAutonomousPlan?
     @State private var statusText = ""
@@ -50,6 +52,7 @@ struct AutonomyControlCenterView: View {
         usageEntries: [UsageLedgerEntry],
         outcomes: [RunOutcomeRecord],
         coordinationEvents: [CoordinationEventRecord],
+        snapshots: [CloudSnapshotRecord],
         draftPlan: @escaping @Sendable (AutonomousGoalRequest) async throws -> AutonomousPlanDraft,
         validationRunner: any ValidationGateRunning = ShellValidationGateRunner()
     ) {
@@ -58,6 +61,7 @@ struct AutonomyControlCenterView: View {
         self.usageEntries = usageEntries
         self.outcomes = outcomes
         self.coordinationEvents = coordinationEvents
+        self.snapshots = snapshots
         self.draftPlan = draftPlan
         self.validationRunner = validationRunner
     }
@@ -67,12 +71,33 @@ struct AutonomyControlCenterView: View {
     }
 
     private var currentPolicy: AutonomyPolicy {
-        var policy = AutonomyPolicy.defaultSafe
-        policy.level = level
-        if let rootPath = selectedProject?.rootPath {
-            policy.allowedRootPaths = [rootPath]
-        }
-        return policy
+        currentLaneTemplate.policy
+    }
+
+    private var currentLaneTemplate: AutonomyTrustLaneTemplate {
+        AutonomyTrustLaneTemplate(
+            lane: trustLane,
+            rootPath: selectedProject?.rootPath,
+            level: level
+        )
+    }
+
+    private var latestSnapshot: CloudSnapshotRecord? {
+        snapshots
+            .filter { $0.status == "available" }
+            .sorted { $0.createdAt > $1.createdAt }
+            .first
+    }
+
+    private var latestCheckpoint: CoordinationEventRecord? {
+        coordinationEvents
+            .filter { event in
+                let projectMatches = selectedProject?.identifier == nil || event.projectID == selectedProject?.identifier
+                return projectMatches &&
+                    (event.status == CoordinationStatus.checkpointed.rawValue || event.commitSHA != nil)
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+            .first
     }
 
     private var selectedGoalIDs: Set<String> {
@@ -268,6 +293,13 @@ struct AutonomyControlCenterView: View {
                     }
                 }
                 .frame(maxWidth: 280)
+
+                Picker("Lane", selection: $trustLane) {
+                    ForEach(AutonomyTrustLane.allCases) { lane in
+                        Label(lane.label, systemImage: lane.systemImage).tag(lane)
+                    }
+                }
+                .frame(maxWidth: 280)
             }
 
             TextField("Goal", text: $goalTitle)
@@ -327,7 +359,8 @@ struct AutonomyControlCenterView: View {
     }
 
     private func taskRow(_ task: AutonomousTaskDraft) -> some View {
-        let decision = evaluate(task)
+        let review = safetyReview(for: task)
+        let decision = review.decision
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Label(task.title, systemImage: icon(for: task.mode))
@@ -356,6 +389,24 @@ struct AutonomyControlCenterView: View {
             Label(decision.message, systemImage: decisionIcon(decision))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(decisionColor(decision))
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Why this is safe", systemImage: "shield.checkered")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(review.reasons.prefix(3), id: \.self) { reason in
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let stopReason = review.stopReason {
+                    Label(stopReason, systemImage: "hand.raised.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                }
+            }
+            .padding(8)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
             taskActions(task: task, decision: decision)
         }
         .padding(12)
@@ -366,12 +417,45 @@ struct AutonomyControlCenterView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Safety Contract")
                 .font(.headline)
+            laneSummaryPanel
             ForEach(readiness.checks) { check in
                 ReadinessCheckRow(check: check)
             }
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var laneSummaryPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(trustLane.label, systemImage: trustLane.systemImage)
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(currentPolicy.networkAccessAllowed ? "Network gated" : "No network")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(currentPolicy.networkAccessAllowed ? .orange : .secondary)
+            }
+            Text(trustLane.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Label(latestSnapshot == nil ? "No snapshot" : "Snapshot ready", systemImage: "camera.metering.matrix")
+                Label(latestCheckpoint == nil ? "No checkpoint" : "Checkpoint ready", systemImage: "arrow.up.doc")
+            }
+            .font(.caption)
+            .foregroundStyle((latestSnapshot == nil && latestCheckpoint == nil) ? .orange : .green)
+            if !currentPolicy.validationCommands.isEmpty {
+                Text(currentPolicy.validationCommands.first ?? "")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var workPanel: some View {
@@ -507,7 +591,28 @@ struct AutonomyControlCenterView: View {
         return AutonomyPolicyEvaluator().evaluateRun(
             mode: task.mode,
             estimatedCostUSD: 0.01,
-            policy: currentPolicy
+            policy: currentPolicy,
+            evidence: evidence(for: task)
+        )
+    }
+
+    private func safetyReview(for task: AutonomousTaskDraft) -> AutonomySafetyReview {
+        AutonomyPolicyEvaluator().safetyReview(
+            title: task.title,
+            mode: task.mode,
+            estimatedCostUSD: 0.01,
+            policy: currentPolicy,
+            evidence: evidence(for: task)
+        )
+    }
+
+    private func evidence(for task: AutonomousTaskDraft) -> AutonomySafetyEvidence {
+        AutonomySafetyEvidence(
+            hasRecentSnapshot: latestSnapshot != nil,
+            hasRecentCheckpoint: latestCheckpoint != nil,
+            candidateChangedFileCount: task.mode.isMutatingAutonomyMode ? 1 : 0,
+            command: task.validationCommand,
+            networkRequested: false
         )
     }
 

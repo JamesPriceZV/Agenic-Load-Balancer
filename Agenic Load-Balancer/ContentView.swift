@@ -144,6 +144,7 @@ struct ContentView: View {
                 usageEntries: usageEntries,
                 outcomes: outcomes,
                 coordinationEvents: coordinationEvents,
+                snapshots: snapshots,
                 draftPlan: { request in
                     try await AppServices.autonomyManager.draftPlan(request: request)
                 }
