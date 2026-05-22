@@ -29,12 +29,13 @@ enum AppServices {
 enum AppBootstrapper {
     static func ensureSeedData(in context: ModelContext) {
         do {
-            let providers = try context.fetch(FetchDescriptor<AgentProviderProfile>())
+            var providers = try context.fetch(FetchDescriptor<AgentProviderProfile>())
             if providers.isEmpty {
                 for draft in ProviderCatalog.defaultProfiles {
                     context.insert(AgentProviderProfile(draft: draft))
                     context.insert(ProviderSetupRecord(providerID: draft.identifier))
                 }
+                providers = try context.fetch(FetchDescriptor<AgentProviderProfile>())
             }
 
             let events = try context.fetch(FetchDescriptor<CoordinationEventRecord>())
@@ -51,9 +52,170 @@ enum AppBootstrapper {
                 )
             }
 
+            if AgenicUITestingOptions.isEnabled {
+                try ensureUITestingFixtures(in: context, providers: providers)
+            }
+
             try context.save()
         } catch {
             assertionFailure("Seed data failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static func ensureUITestingFixtures(
+        in context: ModelContext,
+        providers: [AgentProviderProfile]
+    ) throws {
+        let now = Date()
+        for provider in providers.prefix(4) {
+            provider.installedState = ProviderAvailabilityState.available.rawValue
+            provider.authState = ProviderAuthState.authenticated.rawValue
+            provider.lastDetectedVersion = "uitest"
+            provider.lastHealthCheckAt = now
+            provider.isEnabled = true
+            provider.updatedAt = now
+        }
+
+        var projects = try context.fetch(FetchDescriptor<AgentProject>())
+        if !projects.contains(where: { $0.identifier == "uitest-integrity-evaluator" }) {
+            context.insert(
+                AgentProject(
+                    identifier: "uitest-integrity-evaluator",
+                    name: "IntegrityEvaluator",
+                    rootPath: "/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/IntegrityEvaluator",
+                    promptExcerptSyncEnabled: true,
+                    defaultWorkingPath: "/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/IntegrityEvaluator",
+                    temporaryWorkingPath: "/Volumes/USB256/Xcode_Projects_Storage/Agenic_UITests/tmp"
+                )
+            )
+        }
+        if !projects.contains(where: { $0.identifier == "uitest-ds-r1" }) {
+            context.insert(
+                AgentProject(
+                    identifier: "uitest-ds-r1",
+                    name: "DS-R1-7B-4b",
+                    rootPath: "/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/DS-R1-7B-4b",
+                    promptExcerptSyncEnabled: true
+                )
+            )
+        }
+
+        projects = try context.fetch(FetchDescriptor<AgentProject>())
+        let seededProjectIDs = Set(projects.map(\.identifier))
+
+        let events = try context.fetch(FetchDescriptor<CoordinationEventRecord>())
+        if !events.contains(where: { $0.identifier == "uitest-coordination-active" }) {
+            context.insert(
+                CoordinationEventRecord(
+                    identifier: "uitest-coordination-active",
+                    projectID: "uitest-integrity-evaluator",
+                    phase: "Sprint G",
+                    wave: "UI Flow",
+                    step: "Responsive audit",
+                    assignee: "Agenic UI fixture",
+                    status: CoordinationStatus.inProgress.rawValue,
+                    title: "Visual regression pass",
+                    detail: "Exercise prompt router, settings, workspace task nesting, restore, and autonomy surfaces.",
+                    createdAt: now.addingTimeInterval(-900)
+                )
+            )
+        }
+        if !events.contains(where: { $0.identifier == "uitest-coordination-cancelled" }) {
+            context.insert(
+                CoordinationEventRecord(
+                    identifier: "uitest-coordination-cancelled",
+                    projectID: "uitest-integrity-evaluator",
+                    phase: "Phase 2",
+                    wave: "Dispatch",
+                    step: "Recommend",
+                    assignee: "Agenic UI fixture",
+                    status: CoordinationStatus.cancelled.rawValue,
+                    title: "Cancelled historical run",
+                    detail: "Historical cancelled runs should remain visible as history without blocking preflight.",
+                    conflictMarker: nil,
+                    createdAt: now.addingTimeInterval(-3_600)
+                )
+            )
+        }
+
+        let outcomes = try context.fetch(FetchDescriptor<RunOutcomeRecord>())
+        if !outcomes.contains(where: { $0.runID == "UITEST-RUN-SUCCEEDED" }),
+           seededProjectIDs.contains("uitest-integrity-evaluator") {
+            context.insert(
+                RunOutcomeRecord(
+                    runID: "UITEST-RUN-SUCCEEDED",
+                    providerID: providers.first?.identifier ?? "codex-cli",
+                    projectID: "uitest-integrity-evaluator",
+                    status: RunStatus.succeeded.rawValue,
+                    accuracyRating: AccuracyRating.correct.rawValue,
+                    buildResult: "testsPassed",
+                    userFeedback: "UI fixture run completed.",
+                    startedAt: now.addingTimeInterval(-1_800),
+                    endedAt: now.addingTimeInterval(-1_740),
+                    durationSeconds: 60
+                )
+            )
+        }
+
+        let goals = try context.fetch(FetchDescriptor<AutonomyGoalRecord>())
+        if !goals.contains(where: { $0.identifier == "uitest-autonomy-goal" }) {
+            context.insert(
+                AutonomyGoalRecord(
+                    identifier: "uitest-autonomy-goal",
+                    projectID: "uitest-integrity-evaluator",
+                    title: "Keep autonomy safe",
+                    goalDescription: "Exercise readiness and trusted lane UI from deterministic fixture data.",
+                    status: CoordinationStatus.planned.rawValue,
+                    autonomyLevel: AutonomyLevel.proposeActions.rawValue,
+                    createdAt: now.addingTimeInterval(-1_200),
+                    updatedAt: now.addingTimeInterval(-1_100)
+                )
+            )
+        }
+
+        let tasks = try context.fetch(FetchDescriptor<AutonomyTaskRecord>())
+        if !tasks.contains(where: { $0.identifier == "uitest-autonomy-task" }) {
+            context.insert(
+                AutonomyTaskRecord(
+                    identifier: "uitest-autonomy-task",
+                    goalID: "uitest-autonomy-goal",
+                    title: "Review bounded plan",
+                    detail: "Fixture autonomy task for workspace nesting and readiness review.",
+                    status: CoordinationStatus.planned.rawValue,
+                    mode: AgentExecutionMode.planOnly.rawValue,
+                    assignedProviderID: providers.first?.identifier,
+                    validationCommand: "git diff --check",
+                    createdAt: now.addingTimeInterval(-1_100),
+                    updatedAt: now.addingTimeInterval(-1_000)
+                )
+            )
+        }
+
+        let snapshots = try context.fetch(FetchDescriptor<CloudSnapshotRecord>())
+        if snapshots.isEmpty {
+            context.insert(
+                CloudSnapshotRecord(
+                    identifier: "uitest-snapshot",
+                    scope: "UI fixture snapshot",
+                    recordCounts: "Projects=2; Providers=\(providers.count); Runs=1",
+                    checksum: "uitest-checksum",
+                    restoreNotes: "Visual-regression fixture; archive import is not required for this smoke path.",
+                    status: "available",
+                    createdAt: now.addingTimeInterval(-600)
+                )
+            )
+        }
+
+        let peers = try context.fetch(FetchDescriptor<MachinePeerRecord>())
+        if peers.isEmpty {
+            context.insert(
+                MachinePeerRecord(
+                    displayName: "UI Test Mac",
+                    deviceFingerprintHash: "uitest-peer",
+                    lastSeenAt: now.addingTimeInterval(-120),
+                    syncStatus: MachineSyncStatus.current.rawValue
+                )
+            )
         }
     }
 }

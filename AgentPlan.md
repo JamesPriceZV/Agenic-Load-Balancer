@@ -22,7 +22,8 @@ Updated: May 22, 2026
 - Sprint D from this roadmap is implemented as provider probe normalization and routing telemetry hardening. Provider probes now report auth and limit state with normalized labels, routing and command-bar actions consume recent reliability snapshots, and the dashboard/router continue to filter to configured providers by default.
 - Sprint E from this roadmap is implemented as the first Cross-Machine Conflict Center slice. The app now has a dedicated Conflicts navigation surface that previews persisted conflict records and synthetic operation-log divergence, shows local/remote envelopes, peer/snapshot warnings, dry-run resolution choices, rollback anchors, and records explicit decisions into SwiftData without mutating target entities.
 - Sprint F from this roadmap is implemented as trusted autopilot lane templates and safety review. Autonomy now has explicit read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency-update, and commit/push lanes with root scopes, protected paths, command allowlists, network posture, budget caps, validation commands, rollback-evidence checks, and a visible "why this is safe" review before task preparation.
-- Future work remains, but it should be treated as scoped roadmap work after Sprint F rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint G from this roadmap is implemented as the first automated UI flow and launch-verification slice. UI tests now cover the minimum-window Command Bar, Prompt Router, Settings Tools controls, Projects controls, project settings, workspace/task navigation, Restore, Autonomy, and light/dark launch flows using deterministic `--uitesting` fixtures and stable accessibility identifiers.
+- Future work remains, but it should be treated as scoped roadmap work after Sprint G rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -63,7 +64,7 @@ Updated: May 22, 2026
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
-- UI validation has launch and full-scheme coverage, but screenshot-level visual regression, resized-window flows, settings subpanes, provider setup edge cases, and run-sheet failure states need broader automated coverage.
+- UI validation now has launch coverage, minimum-window flow coverage, and a first deterministic workspace/task flow. Screenshot-diff baselines, maximized/full-screen matrices, provider setup edge cases, and run-sheet failure-state permutations still need broader automated coverage.
 - Conflict resolution now has deterministic primitives, audit records, and a user-facing dry-run Conflict Center. The remaining "perfect conflict resolution" promise needs live cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows.
 
 ## Deferred Future Queue
@@ -279,17 +280,29 @@ Validation:
 
 ### Sprint G - UI Flow And Visual Regression Coverage
 
+Status: implemented in this checkpoint as the first automated UI flow and launch-verification slice. Expanded screenshot-diff baselines remain a future visual-regression queue item.
+
 Goal: keep the Liquid Glass experience aligned, calm, and robust across window sizes.
 
-- Add UI tests for prompt router resized layout, command sheet close paths, live run dock, provider setup, settings panes, project edit/delete, project task nesting, AgentNotes stale cleanup, restore preview, and autonomy readiness.
-- Capture reference screenshots for dark/light, minimum supported size, medium window, maximized window, and full screen.
-- Add screenshot diff thresholds or manual review artifacts under USB-derived validation folders.
-- Ensure every button label fits at minimum window width and that action buttons align consistently.
+- Added volatile `--uitesting` fixture bootstrap so UI tests launch with configured providers, sample workspaces, active/cancelled coordination records, a succeeded run outcome, autonomy records, snapshot data, and machine-peer sync state without touching CloudKit production data.
+- Added stable accessibility identifiers for toolbar actions, Command Bar controls, Prompt Router, Settings Tools toggles, Projects controls, project settings, workspace/task navigation, Restore, Autonomy, and launch smoke surfaces.
+- Replaced fragile nested sidebar `Button` navigation for workspaces/tasks with selection-bound `NavigationLink` rows so clicking nested workspace/task items actually changes app selection.
+- Added a minimum-window UI flow that opens/closes the Command Bar, verifies Prompt Router controls, opens Settings, and checks the aligned Tools permission toggles.
+- Added a workspace UI flow that exercises Projects controls, project settings, workspace/task detail navigation, Restore, and Autonomy readiness surfaces.
+- Added a launch UI test that verifies dashboard launch in light and dark appearances, with a Command-N fallback for macOS window-restoration edge cases.
+- Kept screenshot artifacts attached to the UI-test result bundles; formal pixel-diff thresholds remain deferred to the broader visual-regression matrix.
 
 Acceptance:
 
 - Regression tests catch the UI failures reported in the screenshot-driven repair turns.
 - Settings and project/workspace controls remain editable and aligned at non-maximized sizes.
+
+Validation:
+
+- `git diff --check` produced no output before the final Sprint G closeout.
+- Focused Sprint G UI flow tests passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintG_20260522_105504/Results/SprintG_UIFlows_Final.xcresult`.
+- Automated launch validation passed in light and dark appearances with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintG_20260522_105504/Results/SprintG_LaunchProbe_Final.xcresult`.
+- Final app build passed with isolated USB roots under `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintG_20260522_105504`, returning `** BUILD SUCCEEDED **`.
 
 ### Sprint H - Packaging, Entitlements, And Release Readiness
 
@@ -354,4 +367,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint F checkpoint is validated and pushed, the next best implementation unit is Sprint G: UI flow and visual regression coverage. Provider probe work should continue as live-provider maintenance, and conflict resolution should continue through live multi-machine recovery drills, but the first trusted-lane safety surface is now implemented.
+After this Sprint G checkpoint is pushed, the next best implementation unit is Sprint H: packaging, entitlements, signing/notarization, release documentation, and migration readiness. Provider probe work should continue as live-provider maintenance, conflict resolution should continue through live multi-machine recovery drills, and expanded screenshot-diff visual regression should continue as a broader QA lane.

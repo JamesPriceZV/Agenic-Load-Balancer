@@ -24,6 +24,12 @@ enum AgenicLaunchEnvironment {
     }
 }
 
+enum AgenicUITestingOptions {
+    static var isEnabled: Bool {
+        AgenicLaunchEnvironment.usesVolatileStore()
+    }
+}
+
 @main
 struct Agenic_Load_BalancerApp: App {
     var sharedModelContainer: ModelContainer = {
@@ -253,20 +259,24 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            settingsSidebar
+        ZStack(alignment: .topLeading) {
+            accessibilityMarker("Sheet.Settings")
 
-            Divider().opacity(0.55)
+            HStack(spacing: 0) {
+                settingsSidebar
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    Text(selectedTab.title)
-                        .font(.title2.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    selectedPane
+                Divider().opacity(0.55)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        Text(selectedTab.title)
+                            .font(.title2.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        selectedPane
+                    }
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .padding(28)
                 }
-                .frame(maxWidth: 760, alignment: .leading)
-                .padding(28)
             }
         }
         .frame(minWidth: 860, idealWidth: 980, minHeight: 600, idealHeight: 720)
@@ -282,6 +292,14 @@ struct SettingsView: View {
         }
     }
 
+    private func accessibilityMarker(_ identifier: String) -> some View {
+        Text(identifier)
+            .font(.caption2)
+            .opacity(0.01)
+            .frame(width: 1, height: 1)
+            .accessibilityIdentifier(identifier)
+    }
+
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 16) {
             Button {
@@ -293,6 +311,7 @@ struct SettingsView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .padding(.top, 2)
+            .accessibilityIdentifier("Settings.BackToApp")
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(AgenicSettingsTab.allCases) { tab in
@@ -368,6 +387,7 @@ struct SettingsView: View {
             RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
                 .stroke(selectedTab == tab ? Color.white.opacity(0.10) : Color.clear, lineWidth: 1)
         }
+        .accessibilityIdentifier("Settings.Tab.\(tab.rawValue)")
     }
 
     @ViewBuilder
@@ -403,15 +423,35 @@ struct SettingsView: View {
             }
         case .tools:
             settingsSection("Command Bar") {
-                settingsToggleRow("Require approval for mutating actions", isOn: $requireMutatingActionApproval)
+                settingsToggleRow(
+                    "Require approval for mutating actions",
+                    isOn: $requireMutatingActionApproval,
+                    identifier: "Settings.Toggle.requireMutatingActionApproval"
+                )
                 settingsRow("Tool actions", "Rank, Dispatch, Probe, Snapshot, Reconcile, Metrics")
                 settingsRow("Dispatch behavior", "Approval-gated run drafts")
             }
             settingsSection("Default Tool Permissions") {
-                settingsToggleRow("Allow tool calling", isOn: $allowToolCalling)
-                settingsToggleRow("Allow shell tools", isOn: $allowShellTools)
-                settingsToggleRow("Allow network search", isOn: $allowNetworkSearch)
-                settingsToggleRow("Allow filesystem writes", isOn: $allowFilesystemWrites)
+                settingsToggleRow(
+                    "Allow tool calling",
+                    isOn: $allowToolCalling,
+                    identifier: "Settings.Toggle.allowToolCalling"
+                )
+                settingsToggleRow(
+                    "Allow shell tools",
+                    isOn: $allowShellTools,
+                    identifier: "Settings.Toggle.allowShellTools"
+                )
+                settingsToggleRow(
+                    "Allow network search",
+                    isOn: $allowNetworkSearch,
+                    identifier: "Settings.Toggle.allowNetworkSearch"
+                )
+                settingsToggleRow(
+                    "Allow filesystem writes",
+                    isOn: $allowFilesystemWrites,
+                    identifier: "Settings.Toggle.allowFilesystemWrites"
+                )
             }
         case .agents:
             settingsSection("Providers") {
@@ -541,7 +581,11 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsToggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+    private func settingsToggleRow(
+        _ title: String,
+        isOn: Binding<Bool>,
+        identifier: String? = nil
+    ) -> some View {
         HStack(alignment: .center) {
             Text(title)
                 .fixedSize(horizontal: false, vertical: true)
@@ -549,6 +593,8 @@ struct SettingsView: View {
             Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
+                .frame(width: 58, alignment: .trailing)
+                .accessibilityIdentifier(identifier ?? "Settings.Toggle.\(title)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)

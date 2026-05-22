@@ -54,6 +54,7 @@ struct CommandBarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Command Bar")
                     .font(.title2.weight(.semibold))
+                    .accessibilityIdentifier("CommandBar.Title")
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -69,6 +70,7 @@ struct CommandBarView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .help("Close command bar")
+            .accessibilityIdentifier("CommandBar.Close")
         }
     }
 
@@ -97,6 +99,7 @@ struct CommandBarView: View {
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(2...4)
                         .onSubmit(submit)
+                        .accessibilityIdentifier("CommandBar.Input")
 
                     Button(action: submit) {
                         Image(systemName: "arrow.up.circle.fill")
@@ -105,6 +108,7 @@ struct CommandBarView: View {
                     .buttonStyle(.borderedProminent)
                     .help("Run command")
                     .disabled(model.state.isResponding || trimmedPrompt.isEmpty)
+                    .accessibilityIdentifier("CommandBar.Submit")
                 }
             }
         }
@@ -122,6 +126,7 @@ struct CommandBarView: View {
                 .buttonStyle(.bordered)
                 .help(action.help)
                 .disabled(model.state.isResponding)
+                .accessibilityIdentifier("CommandBar.QuickAction.\(action.id)")
             }
         }
     }
@@ -173,6 +178,7 @@ struct CommandBarView: View {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("CommandBar.FooterClose")
         }
     }
 

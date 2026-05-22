@@ -22,8 +22,15 @@ final class Agenic_Load_BalancerUITestsLaunchTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting"]
         app.launch()
+        app.activate()
 
-        XCTAssertTrue(app.staticTexts["Agenic Load-Balancer"].waitForExistence(timeout: 8))
+        let dashboard = app.descendants(matching: .any)
+            .matching(identifier: "Screen.Dashboard")
+            .firstMatch
+        if !dashboard.waitForExistence(timeout: 3) {
+            app.typeKey("n", modifierFlags: .command)
+        }
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 8))
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

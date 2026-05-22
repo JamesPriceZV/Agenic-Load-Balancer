@@ -79,12 +79,14 @@ struct ContentView: View {
                 } label: {
                     Label("Command Bar", systemImage: "command")
                 }
+                .accessibilityIdentifier("Toolbar.CommandBar")
 
                 Button {
                     selectedSection = .promptRouter
                 } label: {
                     Label("New Prompt", systemImage: "plus.message")
                 }
+                .accessibilityIdentifier("Toolbar.NewPrompt")
 
                 Button {
                     Task {
@@ -95,6 +97,7 @@ struct ContentView: View {
                 } label: {
                     Label("iCloud Sync", systemImage: "arrow.triangle.2.circlepath.icloud")
                 }
+                .accessibilityIdentifier("Toolbar.iCloudSync")
 
                 Button {
                     settingsInitialTab = .generation
@@ -102,6 +105,7 @@ struct ContentView: View {
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
+                .accessibilityIdentifier("Toolbar.Settings")
             }
         }
         .sheet(isPresented: $showingCommandBar) {
@@ -128,6 +132,7 @@ struct ContentView: View {
                 outcomes: outcomes,
                 cloudStatus: cloudStatus
             )
+            .accessibilityIdentifier("Screen.Dashboard")
         case .promptRouter:
             PromptRouterView(
                 projects: projects,
@@ -137,6 +142,7 @@ struct ContentView: View {
                 coordinationEvents: coordinationEvents,
                 runSessions: $promptRunSessions
             )
+            .accessibilityIdentifier("Screen.PromptRouter")
         case .autonomy:
             AutonomyControlCenterView(
                 projects: projects,
@@ -149,10 +155,13 @@ struct ContentView: View {
                     try await AppServices.autonomyManager.draftPlan(request: request)
                 }
             )
+            .accessibilityIdentifier("Screen.Autonomy")
         case .providers:
             ProviderSetupView(providers: providers)
+                .accessibilityIdentifier("Screen.Providers")
         case .projects:
             ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+                .accessibilityIdentifier("Screen.Projects")
         case .workspace(let projectID):
             if let project = projects.first(where: { $0.identifier == projectID }) {
                 WorkspaceProjectDetailView(
@@ -162,12 +171,14 @@ struct ContentView: View {
                 )
             } else {
                 ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+                    .accessibilityIdentifier("Screen.Projects")
             }
         case .workspaceTask(let taskID):
             if let summary = taskSummary(withID: taskID) {
                 WorkspaceTaskDetailView(summary: summary)
             } else {
                 ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
+                    .accessibilityIdentifier("Screen.Projects")
             }
         case .conflictCenter:
             ConflictCenterView(
@@ -176,8 +187,10 @@ struct ContentView: View {
                 peers: machinePeers,
                 snapshots: snapshots
             )
+            .accessibilityIdentifier("Screen.Conflicts")
         case .history:
             HistoryView(decisions: decisions, outcomes: outcomes, usageEntries: usageEntries)
+                .accessibilityIdentifier("Screen.History")
         case .restoreCenter:
             RestoreCenterView(
                 projects: projects,
@@ -187,8 +200,10 @@ struct ContentView: View {
                 snapshots: snapshots,
                 cloudStatus: cloudStatus
             )
+            .accessibilityIdentifier("Screen.Restore")
         case .agentNotes:
             AgentNotesView(projects: projects, coordinationEvents: coordinationEvents)
+                .accessibilityIdentifier("Screen.AgentNotes")
         }
     }
 
@@ -196,6 +211,7 @@ struct ContentView: View {
         NavigationLink(value: section) {
             Label(label, systemImage: systemImage)
         }
+        .accessibilityIdentifier("Sidebar.\(section.id)")
     }
 
     @ViewBuilder
@@ -212,18 +228,17 @@ struct ContentView: View {
                 }
             )
         ) {
-            Button {
-                selectedSection = .projects
-            } label: {
+            NavigationLink(value: ConsoleSection.projects) {
                 Label("Manage Workspaces", systemImage: "folder.badge.gearshape")
             }
-            .buttonStyle(.plain)
+            .accessibilityIdentifier("Sidebar.ManageWorkspaces")
 
             ForEach(projects, id: \.identifier) { project in
                 workspaceTree(project)
             }
         } label: {
             Label("Projects", systemImage: "folder.badge.gearshape")
+                .accessibilityIdentifier("Sidebar.ProjectsDisclosure")
         }
     }
 
@@ -242,9 +257,7 @@ struct ContentView: View {
                 }
             )
         ) {
-            Button {
-                selectedSection = .workspace(project.identifier)
-            } label: {
+            NavigationLink(value: ConsoleSection.workspace(project.identifier)) {
                 HStack {
                     Text("Workspace")
                     Spacer()
@@ -252,31 +265,27 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .buttonStyle(.plain)
+            .accessibilityIdentifier("Sidebar.WorkspaceRoot.\(project.identifier)")
 
             ForEach(tasks.prefix(6)) { task in
-                Button {
-                    selectedSection = .workspaceTask(task.id)
-                } label: {
+                NavigationLink(value: ConsoleSection.workspaceTask(task.id)) {
                     WorkspaceTaskSidebarRow(summary: task)
                 }
-                .buttonStyle(.plain)
+                .accessibilityIdentifier("Sidebar.Task.\(task.id)")
             }
 
             if tasks.count > 6 {
-                Button {
-                    selectedSection = .workspace(project.identifier)
-                } label: {
+                NavigationLink(value: ConsoleSection.workspace(project.identifier)) {
                     Text("Show \(tasks.count - 6) more")
                         .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
             }
         } label: {
             HStack {
                 Image(systemName: "folder")
                 Text(project.name)
                     .lineLimit(1)
+                    .accessibilityIdentifier("Sidebar.Workspace.\(project.identifier)")
                 Spacer()
                 activeTaskIndicator(tasks)
             }
@@ -552,6 +561,17 @@ private struct WorkspaceProjectDetailView: View {
             }
             .padding(24)
         }
+        .overlay(alignment: .topLeading) {
+            accessibilityMarker("Screen.Workspace.\(project.identifier)")
+        }
+    }
+
+    private func accessibilityMarker(_ identifier: String) -> some View {
+        Text(identifier)
+            .font(.caption2)
+            .opacity(0.01)
+            .frame(width: 1, height: 1)
+            .accessibilityIdentifier(identifier)
     }
 }
 
@@ -597,6 +617,17 @@ private struct WorkspaceTaskDetailView: View {
             }
             .padding(24)
         }
+        .overlay(alignment: .topLeading) {
+            accessibilityMarker("Screen.WorkspaceTask.\(summary.id)")
+        }
+    }
+
+    private func accessibilityMarker(_ identifier: String) -> some View {
+        Text(identifier)
+            .font(.caption2)
+            .opacity(0.01)
+            .frame(width: 1, height: 1)
+            .accessibilityIdentifier(identifier)
     }
 }
 
@@ -3242,6 +3273,7 @@ private struct ProjectRow: View {
         } label: {
             Label("Regenerate AgentNotes", systemImage: "arrow.clockwise")
         }
+        .accessibilityIdentifier("ProjectRow.\(project.identifier).Regenerate")
     }
 
     private var settingsButton: some View {
@@ -3250,6 +3282,7 @@ private struct ProjectRow: View {
         } label: {
             Label("Settings", systemImage: "slider.horizontal.3")
         }
+        .accessibilityIdentifier("ProjectRow.\(project.identifier).Settings")
     }
 
     private var promptExcerptToggle: some View {
@@ -3258,6 +3291,7 @@ private struct ProjectRow: View {
                 set: { newValue in syncChanged(newValue) }
         ))
         .toggleStyle(.switch)
+        .accessibilityIdentifier("ProjectRow.\(project.identifier).PromptExcerptSync")
     }
 
     private var deleteButton: some View {
@@ -3267,6 +3301,7 @@ private struct ProjectRow: View {
             Label("Delete", systemImage: "trash")
         }
         .buttonStyle(.borderless)
+        .accessibilityIdentifier("ProjectRow.\(project.identifier).Delete")
     }
 }
 
@@ -3313,147 +3348,159 @@ private struct ProjectSettingsSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Project Settings")
-                    .font(.title2.weight(.semibold))
-                Text(project.name)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(24)
+        ZStack(alignment: .topLeading) {
+            accessibilityMarker("Sheet.ProjectSettings")
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    GlassPanel {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Workspace")
-                                .font(.headline)
-                            TextField("Name", text: $name)
-                            LabeledContent("Folder") {
-                                HStack(spacing: 8) {
-                                    Text(rootPath ?? "No folder selected")
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                        .textSelection(.enabled)
-                                    Button {
-                                        chooseFolder()
-                                    } label: {
-                                        Label("Choose", systemImage: "folder")
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Project Settings")
+                        .font(.title2.weight(.semibold))
+                    Text(project.name)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        GlassPanel {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Workspace")
+                                    .font(.headline)
+                                TextField("Name", text: $name)
+                                LabeledContent("Folder") {
+                                    HStack(spacing: 8) {
+                                        Text(rootPath ?? "No folder selected")
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                        Button {
+                                            chooseFolder()
+                                        } label: {
+                                            Label("Choose", systemImage: "folder")
+                                        }
                                     }
                                 }
+                                LabeledContent("AgentNotes", value: project.agentNotesRelativePath)
                             }
-                            LabeledContent("AgentNotes", value: project.agentNotesRelativePath)
                         }
-                    }
 
-                    GlassPanel {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Recall & Sync")
-                                .font(.headline)
-                            Toggle("Sync prompt excerpts for this project", isOn: $promptExcerptSyncEnabled)
-                                .toggleStyle(.switch)
-                            Text("Project name, folder bookmark, AgentNotes metadata, and recall settings are stored in SwiftData and backed by the app's private CloudKit container.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        GlassPanel {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Recall & Sync")
+                                    .font(.headline)
+                                Toggle("Sync prompt excerpts for this project", isOn: $promptExcerptSyncEnabled)
+                                    .toggleStyle(.switch)
+                                Text("Project name, folder bookmark, AgentNotes metadata, and recall settings are stored in SwiftData and backed by the app's private CloudKit container.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
 
-                    GlassPanel {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Execution")
-                                .font(.headline)
-                            LabeledContent("Default working path") {
-                                HStack(spacing: 8) {
-                                    TextField("Uses workspace root when blank", text: $defaultWorkingPath)
-                                        .textFieldStyle(.roundedBorder)
-                                    Button {
-                                        defaultWorkingPath = rootPath ?? ""
-                                    } label: {
-                                        Label("Root", systemImage: "folder")
+                        GlassPanel {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Execution")
+                                    .font(.headline)
+                                LabeledContent("Default working path") {
+                                    HStack(spacing: 8) {
+                                        TextField("Uses workspace root when blank", text: $defaultWorkingPath)
+                                            .textFieldStyle(.roundedBorder)
+                                        Button {
+                                            defaultWorkingPath = rootPath ?? ""
+                                        } label: {
+                                            Label("Root", systemImage: "folder")
+                                        }
                                     }
                                 }
-                            }
-                            LabeledContent("Temporary path") {
-                                HStack(spacing: 8) {
-                                    TextField("Optional TMPDIR / AGENIC_TMPDIR", text: $temporaryWorkingPath)
-                                        .textFieldStyle(.roundedBorder)
-                                    Button {
-                                        chooseTemporaryFolder()
-                                    } label: {
-                                        Label("Choose", systemImage: "folder")
+                                LabeledContent("Temporary path") {
+                                    HStack(spacing: 8) {
+                                        TextField("Optional TMPDIR / AGENIC_TMPDIR", text: $temporaryWorkingPath)
+                                            .textFieldStyle(.roundedBorder)
+                                        Button {
+                                            chooseTemporaryFolder()
+                                        } label: {
+                                            Label("Choose", systemImage: "folder")
+                                        }
                                     }
                                 }
+                                Toggle("Compact long run context before AI summaries", isOn: $contextCompactionEnabled)
+                                    .toggleStyle(.switch)
+                                Stepper(value: $contextCompactionThresholdTokens, in: 8_000...1_000_000, step: 8_000) {
+                                    LabeledContent("Compaction threshold", value: "\(contextCompactionThresholdTokens.formatted()) tokens")
+                                }
                             }
-                            Toggle("Compact long run context before AI summaries", isOn: $contextCompactionEnabled)
-                                .toggleStyle(.switch)
-                            Stepper(value: $contextCompactionThresholdTokens, in: 8_000...1_000_000, step: 8_000) {
-                                LabeledContent("Compaction threshold", value: "\(contextCompactionThresholdTokens.formatted()) tokens")
+                        }
+
+                        GlassPanel {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Tool Permissions")
+                                    .font(.headline)
+                                Toggle("Allow tool calling", isOn: $allowToolCalling)
+                                    .toggleStyle(.switch)
+                                Toggle("Allow shell tools", isOn: $allowShellTools)
+                                    .toggleStyle(.switch)
+                                Toggle("Allow network search", isOn: $allowNetworkSearch)
+                                    .toggleStyle(.switch)
+                                Toggle("Allow filesystem writes", isOn: $allowFilesystemWrites)
+                                    .toggleStyle(.switch)
+                                Text("These values are injected into approved runs as workspace policy text and environment flags, then synced with the project record.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                }
 
-                    GlassPanel {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Tool Permissions")
-                                .font(.headline)
-                            Toggle("Allow tool calling", isOn: $allowToolCalling)
-                                .toggleStyle(.switch)
-                            Toggle("Allow shell tools", isOn: $allowShellTools)
-                                .toggleStyle(.switch)
-                            Toggle("Allow network search", isOn: $allowNetworkSearch)
-                                .toggleStyle(.switch)
-                            Toggle("Allow filesystem writes", isOn: $allowFilesystemWrites)
-                                .toggleStyle(.switch)
-                            Text("These values are injected into approved runs as workspace policy text and environment flags, then synced with the project record.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                Divider()
+
+                HStack(spacing: 12) {
+                    Button(role: .destructive) {
+                        onDelete()
+                        dismiss()
+                    } label: {
+                        Label("Delete Project", systemImage: "trash")
                     }
+                    Spacer()
+                    Button("Cancel") { dismiss() }
+                    Button {
+                        onSave(ProjectSettingsDraft(
+                            name: name,
+                            rootPath: rootPath,
+                            bookmarkData: bookmarkData,
+                            promptExcerptSyncEnabled: promptExcerptSyncEnabled,
+                            defaultWorkingPath: normalizedOptionalPath(defaultWorkingPath),
+                            temporaryWorkingPath: normalizedOptionalPath(temporaryWorkingPath),
+                            allowToolCalling: allowToolCalling,
+                            allowShellTools: allowShellTools,
+                            allowNetworkSearch: allowNetworkSearch,
+                            allowFilesystemWrites: allowFilesystemWrites,
+                            contextCompactionEnabled: contextCompactionEnabled,
+                            contextCompactionThresholdTokens: contextCompactionThresholdTokens
+                        ))
+                        dismiss()
+                    } label: {
+                        Label("Save", systemImage: "checkmark")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .padding(24)
             }
-
-            Divider()
-
-            HStack(spacing: 12) {
-                Button(role: .destructive) {
-                    onDelete()
-                    dismiss()
-                } label: {
-                    Label("Delete Project", systemImage: "trash")
-                }
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button {
-                    onSave(ProjectSettingsDraft(
-                        name: name,
-                        rootPath: rootPath,
-                        bookmarkData: bookmarkData,
-                        promptExcerptSyncEnabled: promptExcerptSyncEnabled,
-                        defaultWorkingPath: normalizedOptionalPath(defaultWorkingPath),
-                        temporaryWorkingPath: normalizedOptionalPath(temporaryWorkingPath),
-                        allowToolCalling: allowToolCalling,
-                        allowShellTools: allowShellTools,
-                        allowNetworkSearch: allowNetworkSearch,
-                        allowFilesystemWrites: allowFilesystemWrites,
-                        contextCompactionEnabled: contextCompactionEnabled,
-                        contextCompactionThresholdTokens: contextCompactionThresholdTokens
-                    ))
-                    dismiss()
-                } label: {
-                    Label("Save", systemImage: "checkmark")
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(24)
         }
         .frame(minWidth: 600, idealWidth: 680, minHeight: 460, idealHeight: 560)
         .background(.regularMaterial)
+    }
+
+    private func accessibilityMarker(_ identifier: String) -> some View {
+        Text(identifier)
+            .font(.caption2)
+            .opacity(0.01)
+            .frame(width: 1, height: 1)
+            .accessibilityIdentifier(identifier)
     }
 
     private func normalizedOptionalPath(_ value: String) -> String? {
@@ -3545,6 +3592,7 @@ private struct ProjectsView: View {
             }
             .padding(24)
         }
+        .accessibilityIdentifier("Screen.Projects.Content")
         .sheet(item: $editingProject) { target in
             ProjectSettingsSheet(
                 project: target.project,
@@ -3599,6 +3647,7 @@ private struct ProjectsView: View {
             Label("Add Workspace", systemImage: "folder.badge.plus")
         }
         .fixedSize()
+        .accessibilityIdentifier("Projects.AddWorkspace")
     }
 
     private func addProject() {
