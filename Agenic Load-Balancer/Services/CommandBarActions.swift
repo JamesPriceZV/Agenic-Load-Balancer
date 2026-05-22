@@ -62,6 +62,7 @@ struct CommandBarContext: Sendable {
     var providers: [AgentProviderSnapshot]
     var usage: [UsageSnapshot]
     var accuracy: [AccuracySnapshot]
+    var reliability: [ProviderReliabilitySnapshot]
     var coordinationEvents: [CoordinationEventSnapshot]
 
     init(
@@ -73,6 +74,7 @@ struct CommandBarContext: Sendable {
         providers: [AgentProviderSnapshot],
         usage: [UsageSnapshot] = [],
         accuracy: [AccuracySnapshot] = [],
+        reliability: [ProviderReliabilitySnapshot] = [],
         coordinationEvents: [CoordinationEventSnapshot] = []
     ) {
         self.prompt = prompt
@@ -83,6 +85,7 @@ struct CommandBarContext: Sendable {
         self.providers = providers
         self.usage = usage
         self.accuracy = accuracy
+        self.reliability = reliability
         self.coordinationEvents = coordinationEvents
     }
 }
@@ -136,6 +139,7 @@ actor CommandBarActionExecutor {
             providers: context.providers,
             usage: context.usage,
             accuracy: context.accuracy,
+            reliability: context.reliability,
             coordinationEvents: context.coordinationEvents
         )
         let boundedLimit = max(1, min(limit, 10))
@@ -160,6 +164,7 @@ actor CommandBarActionExecutor {
             providers: context.providers,
             usage: context.usage,
             accuracy: context.accuracy,
+            reliability: context.reliability,
             coordinationEvents: context.coordinationEvents
         )
         let selected = providerID.flatMap { id in
@@ -206,8 +211,14 @@ actor CommandBarActionExecutor {
         var lines: [String] = []
         for provider in targets {
             let snapshot = await healthMonitor.probe(provider: provider)
+            let report = ProviderProbeClassifier.report(
+                provider: provider,
+                health: snapshot,
+                usage: context.usage.first { $0.providerID == provider.identifier },
+                reliability: context.reliability.first { $0.providerID == provider.identifier }
+            )
             let version = snapshot.detectedVersion.map { " (\($0))" } ?? ""
-            lines.append("\(provider.displayName): \(snapshot.availabilityState.rawValue)\(version) - \(snapshot.message)")
+            lines.append("\(provider.displayName): \(snapshot.availabilityState.rawValue)\(version) - \(report.summary) - \(snapshot.message)")
         }
 
         return CommandBarActionResult(

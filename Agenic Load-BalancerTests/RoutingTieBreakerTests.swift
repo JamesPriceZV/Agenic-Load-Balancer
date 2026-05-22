@@ -21,6 +21,7 @@ struct RoutingTieBreakerTests {
                 candidates: [candidate],
                 usage: [],
                 accuracy: [],
+                reliability: [],
                 coordinationEvents: []
             )
         )
@@ -61,6 +62,7 @@ struct RoutingTieBreakerTests {
             providers: [codex, missing],
             usage: [],
             accuracy: [],
+            reliability: [],
             coordinationEvents: []
         )
 
@@ -86,6 +88,7 @@ struct RoutingTieBreakerTests {
             providers: [codex, claude],
             usage: [],
             accuracy: [],
+            reliability: [],
             coordinationEvents: []
         )
 
@@ -112,6 +115,7 @@ struct RoutingTieBreakerTests {
             providers: [codex, claude],
             usage: [],
             accuracy: [],
+            reliability: [],
             coordinationEvents: []
         )
 
@@ -132,6 +136,7 @@ struct RoutingTieBreakerTests {
                 candidates: [candidate],
                 usage: [],
                 accuracy: [],
+                reliability: [],
                 coordinationEvents: []
             )
         )

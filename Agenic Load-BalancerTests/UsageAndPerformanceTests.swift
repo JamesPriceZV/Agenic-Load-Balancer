@@ -235,6 +235,40 @@ struct UsageAndPerformanceTests {
         #expect(summary.trendline.isEmpty)
     }
 
+    @Test func reliabilitySnapshotPenalizesRecentFailuresAndLimits() throws {
+        let provider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
+        let now = Date()
+        let success = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.succeeded.rawValue,
+            startedAt: now.addingTimeInterval(-120)
+        )
+        let contextFailure = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.failed.rawValue,
+            userFeedback: "Exceeded model context window size",
+            startedAt: now.addingTimeInterval(-60)
+        )
+        let quotaFailure = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.failed.rawValue,
+            userFeedback: "Quota exceeded for current plan",
+            startedAt: now
+        )
+
+        let snapshots = ProviderReliabilityBuilder.build(
+            providers: [provider],
+            outcomes: [success, contextFailure, quotaFailure]
+        )
+
+        let snapshot = try #require(snapshots.first)
+        #expect(snapshot.recentRunCount == 3)
+        #expect(snapshot.failedRunCount == 2)
+        #expect(snapshot.contextLimitedRunCount == 1)
+        #expect(snapshot.quotaLimitedRunCount == 1)
+        #expect(snapshot.reliabilityScore < 0.70)
+    }
+
     @Test func dashboardHeatmapIncludesLatencyAndSuccessMetrics() throws {
         let container = try Self.makeContainer()
         let context = ModelContext(container)
@@ -259,10 +293,11 @@ struct UsageAndPerformanceTests {
         let metricNames = Set(cells.map(\.metricName))
         #expect(metricNames.contains("Latency"))
         #expect(metricNames.contains("Success"))
+        #expect(metricNames.contains("Reliability"))
         #expect(metricNames.contains("Availability"))
         #expect(metricNames.contains("Cost"))
-        // Six metrics × one provider = six cells.
-        #expect(cells.count == 6)
+        // Seven metrics × one provider = seven cells.
+        #expect(cells.count == 7)
     }
 
     @Test func dashboardProviderFilterKeepsOnlyConfiguredProviders() throws {

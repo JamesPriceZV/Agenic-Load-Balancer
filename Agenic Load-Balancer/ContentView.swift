@@ -744,8 +744,17 @@ private struct DashboardView: View {
         AccuracySnapshotBuilder.build(from: outcomes, providers: configuredProviders)
     }
 
+    private var reliability: [ProviderReliabilitySnapshot] {
+        ProviderReliabilityBuilder.build(providers: configuredProviders, outcomes: outcomes)
+    }
+
     private var heatmapCells: [DashboardHeatmapCell] {
-        DashboardMetricFactory.heatmapCells(providers: configuredProviders, usage: usage, accuracy: accuracy)
+        DashboardMetricFactory.heatmapCells(
+            providers: configuredProviders,
+            usage: usage,
+            accuracy: accuracy,
+            reliability: reliability
+        )
     }
 
     private var performanceSummaries: [ProviderPerformanceSummary] {
@@ -889,6 +898,10 @@ private struct PromptRouterView: View {
     @State private var commandPreview = "Rank agents to preview the approved command."
     @State private var approvalStatus = ""
     @State private var presentedRunSession: PromptRunSession?
+
+    private var rankableProviders: [AgentProviderProfile] {
+        providers.filter(\.isConfiguredForDashboard)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -1092,13 +1105,15 @@ private struct PromptRouterView: View {
     }
 
     private func rankRoutes() {
-        let providerSnapshots = providers.map { $0.snapshot() }
+        let routeProviders = rankableProviders
+        let providerSnapshots = routeProviders.map { $0.snapshot() }
         let usage = UsageSnapshotBuilder.build(
             from: usageEntries,
             outcomes: outcomes,
-            providers: providers
+            providers: routeProviders
         )
-        let accuracy = AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+        let accuracy = AccuracySnapshotBuilder.build(from: outcomes, providers: routeProviders)
+        let reliability = ProviderReliabilityBuilder.build(providers: routeProviders, outcomes: outcomes)
         let coordination = coordinationEvents.map { $0.snapshot() }
         let promptText = prompt
         let mode = selectedMode
@@ -1110,11 +1125,14 @@ private struct PromptRouterView: View {
                 providers: providerSnapshots,
                 usage: usage,
                 accuracy: accuracy,
+                reliability: reliability,
                 coordinationEvents: coordination
             )
             await MainActor.run {
                 recommendation = nextRecommendation
                 selectedScoreID = nextRecommendation.selected?.id
+                approvalStatus = nextRecommendation.selected.map { "Recommended \($0.providerName)." }
+                    ?? "No configured provider available."
                 if let selected = nextRecommendation.selected {
                     buildCommandPreview(for: selected)
                 }
@@ -1123,7 +1141,7 @@ private struct PromptRouterView: View {
     }
 
     private func buildCommandPreview(for score: RoutingScoreBreakdown) {
-        guard let provider = providers.first(where: { $0.identifier == score.providerID }) else {
+        guard let provider = rankableProviders.first(where: { $0.identifier == score.providerID }) else {
             commandPreview = "Provider profile not found."
             return
         }
@@ -1145,7 +1163,7 @@ private struct PromptRouterView: View {
 
     private func currentRunPlan() -> RunPlan? {
         guard let score = selectedScore,
-              let provider = providers.first(where: { $0.identifier == score.providerID }) else {
+              let provider = rankableProviders.first(where: { $0.identifier == score.providerID }) else {
             return nil
         }
         return RunPlan(
@@ -1576,6 +1594,7 @@ struct ApprovalSheetView: View {
                 ScoreBar(label: "Capability", value: plan.score.capabilityScore)
                 ScoreBar(label: "Limit headroom", value: plan.score.limitScore)
                 ScoreBar(label: "Accuracy", value: plan.score.accuracyScore)
+                ScoreBar(label: "Reliability", value: plan.score.reliabilityScore)
                 ScoreBar(label: "Speed", value: plan.score.speedScore)
                 ScoreBar(label: "Cost", value: plan.score.costScore)
                 Divider()
@@ -1591,6 +1610,7 @@ struct ApprovalSheetView: View {
                     .font(.headline)
                 LabeledContent("Estimated cost", value: plan.score.estimatedCostUSD.formatted(.currency(code: "USD")))
                 LabeledContent("Limit impact", value: plan.score.limitImpact)
+                LabeledContent("Reliability", value: plan.score.reliabilityImpact)
                 if !plan.score.coordinationWarning.isEmpty {
                     Label(plan.score.coordinationWarning, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -2245,6 +2265,9 @@ private struct ProviderSetupView: View {
             for provider in providers {
                 let health = await AppServices.healthMonitor.probe(provider: provider.snapshot())
                 provider.installedState = health.availabilityState.rawValue
+                if health.authStatus == .accountSignedIn || health.authStatus == .apiKeyPresent || health.authStatus == .customProfile || health.authStatus == .notRequired {
+                    provider.authState = ProviderAuthState.authenticated.rawValue
+                }
                 provider.lastDetectedVersion = health.detectedVersion
                 provider.lastHealthCheckAt = health.checkedAt
                 provider.updatedAt = health.checkedAt
@@ -2837,6 +2860,10 @@ private struct ProviderSetupSheet: View {
                         Spacer()
                     }
                     LabeledContent("Status", value: probeResult?.availabilityState.rawValue.capitalized ?? "Unknown")
+                    if let probeResult {
+                        LabeledContent("Auth", value: probeResult.authStatus.label)
+                        LabeledContent("Limits", value: probeResult.limitStatus.label)
+                    }
                     if let detectedVersion = probeResult?.detectedVersion {
                         LabeledContent("Version", value: detectedVersion)
                     }
@@ -2869,8 +2896,17 @@ private struct ProviderSetupSheet: View {
         Task { @MainActor in
             let health = await AppServices.healthMonitor.probe(provider: snapshot)
             probeResult = health
-            probeStatus = health.message
+            let report = ProviderProbeClassifier.report(
+                provider: snapshot,
+                health: health,
+                usage: nil,
+                reliability: nil
+            )
+            probeStatus = "\(health.message) \(report.summary)"
             provider.installedState = health.availabilityState.rawValue
+            if health.authStatus == .accountSignedIn || health.authStatus == .apiKeyPresent || health.authStatus == .customProfile || health.authStatus == .notRequired {
+                provider.authState = ProviderAuthState.authenticated.rawValue
+            }
             provider.lastDetectedVersion = health.detectedVersion
             provider.lastHealthCheckAt = health.checkedAt
             provider.updatedAt = health.checkedAt
@@ -5042,9 +5078,13 @@ private struct RouteScoreRow: View {
                             .multilineTextAlignment(.leading)
                     }
 
-                    HStack {
-                        Label(score.estimatedCostUSD.formatted(.currency(code: "USD")), systemImage: "creditcard")
-                        Label(score.limitImpact, systemImage: "gauge.with.dots.needle.bottom.50percent")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            scoreMetaLabels
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            scoreMetaLabels
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -5056,6 +5096,13 @@ private struct RouteScoreRow: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var scoreMetaLabels: some View {
+        Label(score.estimatedCostUSD.formatted(.currency(code: "USD")), systemImage: "creditcard")
+        Label(score.limitImpact, systemImage: "gauge.with.dots.needle.bottom.50percent")
+        Label(score.reliabilityImpact, systemImage: "waveform.path.ecg")
     }
 }
 

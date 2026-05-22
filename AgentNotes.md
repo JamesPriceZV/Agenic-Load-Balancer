@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint D provider probe and routing telemetry hardening
+  Assignee: OpenAI Codex
+  Detail: Implemented the Sprint D roadmap item from `AgentPlan.md`. Added normalized provider probe telemetry for auth status, API-key presence, custom command profiles, no-auth Foundation Models, and limit signals for subscription, quota, rate, and context pressure. Added recent reliability snapshots from completed run outcomes and fed them into deterministic routing scores, approval-sheet score breakdowns, command-bar rank/dispatch/probe output, autonomy run preparation, Foundation Models tie-break prompts, and dashboard heatmap cells. Dashboard and Prompt Router recommendation surfaces remain filtered to configured providers by default.
+  Run: local Sprint D implementation and validation turn on May 22, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: `git diff --check` produced no output. Build-only validation from the active iCloud root with isolated Sprint D USB roots returned `** BUILD SUCCEEDED **` using `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintD_20260522_032017/DerivedData_BuildOnly`. App launch verification passed with `DERIVED_DATA_PATH="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintD_20260522_032017/DerivedData_RunVerify" CODE_SIGNING_ALLOWED=NO ./script/build_and_run.sh --verify`. Two focused `xcodebuild test` attempts for the new Sprint D coverage stalled in Xcode orchestration before a visible `xctest` child appeared and were interrupted, so they are not recorded as passing tests.
+
 - [checkpointed] Sprint C token budget and continuation hardening
   Assignee: OpenAI Codex
   Detail: Implemented the Sprint C roadmap item from `AgentPlan.md`. Added provider-neutral token estimation with provider context-window overrides, pre-dispatch AgentNotes compaction, context-budget summaries on approval/run outcomes, durable transcript segment records, snapshot round-trip support for transcript segments, usage-ledger context windows, and continuation prompts for context-window failures. The approval sheet now shows context pressure before dispatch, and terminal run sheets can show/copy a safe follow-up prompt when a provider fails because the context window was exceeded.

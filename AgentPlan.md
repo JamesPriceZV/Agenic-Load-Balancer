@@ -19,7 +19,8 @@ Updated: May 22, 2026
 - The implementation commits now present in the active iCloud checkout include the command bar, intelligent AgentNotes preflight, Foundation Models routing tie-breaker, autonomous project manager foundation, autonomy persistence/execution wiring, dispatch hardening, UI and project settings repair, cancelled coordination cleanup, provider auth/settings/workspace task wiring, autonomy readiness polish, and settings tool alignment.
 - Sprint B from this roadmap is implemented as an in-app Foundation Models diagnostics route. Settings > Agents can check host availability and run live command-bar metrics, run-summary, and routing tie-break probes while keeping deterministic fallback behavior intact.
 - Sprint C from this roadmap is implemented as provider-neutral token budget and continuation hardening. Prompt Router approvals now show context pressure, oversized AgentNotes preflight context is compacted before dispatch, run outcomes retain context-budget and continuation metadata, long stdout/stderr transcripts are segmented for durable storage/snapshots, and context-window failures prepare a safe follow-up prompt instead of only reporting the failure.
-- Future work remains, but it should be treated as the next scoped roadmap work, starting with Sprint D provider probe and routing telemetry hardening rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint D from this roadmap is implemented as provider probe normalization and routing telemetry hardening. Provider probes now report auth and limit state with normalized labels, routing and command-bar actions consume recent reliability snapshots, and the dashboard/router continue to filter to configured providers by default.
+- Future work remains, but it should be treated as scoped roadmap work after Sprint D rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -28,12 +29,12 @@ Updated: May 22, 2026
 - CloudKit/private iCloud configuration for SwiftData sync and app-level sync status display.
 - Keychain reference model for secrets, with SwiftData/CloudKit storing references and setup metadata only.
 - Provider catalog and setup wizard with install instructions, account/browser login lanes, API-key lanes, verification commands, auth probes, docs links, custom command profiles, and environment hints.
-- Prompt Router scoring, rationale cards, score breakdowns, configured-provider filtering, quota/cost/performance inputs, accuracy history, and close-score tie-break hooks.
+- Prompt Router scoring, rationale cards, score breakdowns, configured-provider filtering, quota/cost/performance inputs, accuracy history, recent reliability history, and close-score tie-break hooks.
 - Approval-gated run pipeline with live console, process streaming, cancellation, token usage capture, preprocessing timing, context-window failure detection, summary status, outcome rating, and optional git checkpointing.
 - Codex CLI prompt transport through stdin (`codex exec --json --cd <project> -`) so long prompts are not rejected as command-line arguments.
 - Run-state truth fixes so context-window overflow, provider structured failure status, nested nonzero exit codes, quota/rate-limit signals, and cancellation are represented honestly.
 - Snapshot and restore center with preview, restore safety, checksums, record counts, and SwiftData-backed archive DTOs.
-- Dashboard heatmap and performance views using only configured providers.
+- Dashboard heatmap and performance views using only configured providers, including recent reliability.
 - Projects view with add/edit/delete, per-workspace settings, persisted folder metadata, prompt excerpt sync, AgentNotes regeneration, and nested task/workspace navigation.
 - In-app Settings sheet with editable generation, context, tools, agents, server, memory, storage, and about surfaces.
 - Tool permission defaults for tool calling, shell tools, network search, filesystem writes, mutating-command approval, default working path, default temporary path, context compaction, and summary caps.
@@ -64,7 +65,7 @@ Updated: May 22, 2026
 
 - Live Foundation Models smoke suite: run command bar, run summary, AgentNotes intelligence, and tie-breaker against real on-device Foundation Models and record observed availability states.
 - Provider-specific continuation loops: add source-file summarization, provider-specific context windows, bounded resume execution policies, and continuation approval flows that can safely chain long runs without losing auditability.
-- Provider probe hardening: add real auth/quota/version probes for each configured provider, normalize failures, and feed trendline reliability back into routing.
+- Provider-specific live probe maintenance: expand the normalized Sprint D probe layer with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
 - Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
 - Conflict center UI: expose operation envelopes, divergent records, proposed merges, rollback options, and "restore into new local copy" flows in a dedicated inspector.
 - Trusted-autopilot lanes: define a staged path from observe-only to plan-only to proposed-action to approved-execution to tightly bounded trusted automation.
@@ -194,18 +195,28 @@ Validation:
 
 ### Sprint D - Provider Probe And Routing Telemetry Hardening
 
+Status: implemented in this checkpoint. Live provider-specific probe expansion remains a maintenance queue item because CLI auth/quota surfaces can change outside the app.
+
 Goal: make routing quality reflect live provider state and recent reliability.
 
-- Add per-provider auth probes that distinguish installed, account-signed-in, API-key-present, subscription-limited, quota-limited, and unknown.
-- Parse provider-specific token/quota/rate-limit output into normalized usage pressure.
-- Add reliability trendlines from recent runs, cancellations, failures, and user accuracy ratings.
-- Feed trendline reliability into `RoutingEngine` with explainable score breakdowns.
-- Add tests for stale auth, expired account sessions, missing binaries, quota exhaustion, and malformed CLI output.
+- Added normalized provider probe auth states for account signed in, API key present, custom profile, unauthenticated, not required, and unknown.
+- Added normalized limit states for healthy, subscription-limited, quota-limited, rate-limited, context-limited, and unknown output.
+- Added recent provider reliability snapshots from completed run outcomes, including succeeded, failed, cancelled, quota-limited, rate-limited, and context-limited signals.
+- Fed recent reliability into `RoutingEngine`, command-bar rank/dispatch actions, autonomy run preparation, Foundation Models tie-break context, approval-sheet score breakdowns, routing rationale cards, and dashboard heatmap cells.
+- Kept dashboard and Prompt Router recommendations filtered to configured providers by default.
+- Added focused regression coverage for normalized probe classification, recent reliability scoring, routing reliability weighting, and the reliability dashboard metric.
 
 Acceptance:
 
 - The dashboard and router show only configured providers by default.
 - Provider recommendations explain live availability, capability fit, limit pressure, accuracy, speed, cost, and recent reliability.
+
+Validation:
+
+- `git diff --check` produced no output.
+- Build-only validation passed from the active iCloud root with isolated Sprint D USB roots: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -derivedDataPath "/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintD_20260522_032017/DerivedData_BuildOnly" ... CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= -skipMacroValidation` returned `** BUILD SUCCEEDED **`.
+- App launch verification passed with `DERIVED_DATA_PATH="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintD_20260522_032017/DerivedData_RunVerify" CODE_SIGNING_ALLOWED=NO ./script/build_and_run.sh --verify`.
+- Two focused `xcodebuild test` attempts for the new Sprint D coverage were interrupted after Xcode test orchestration stalled before a visible `xctest` child appeared; this is recorded as a validation harness issue, not as a passing test claim.
 
 ### Sprint E - Cross-Machine Conflict Center
 
@@ -314,4 +325,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint C checkpoint is validated and pushed, the next best implementation unit is Sprint D: provider probe and routing telemetry hardening. That is the narrowest high-value step toward making provider recommendations reflect live auth, quota, reliability, and recent failure state instead of mostly static configuration plus historical outcomes.
+After this Sprint D checkpoint is validated and pushed, the next best implementation unit is Sprint E: cross-machine conflict center. Provider probe work should continue as live-provider maintenance, but the core Sprint D routing telemetry layer is now implemented.

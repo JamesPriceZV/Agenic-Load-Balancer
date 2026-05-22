@@ -110,6 +110,26 @@ struct ProviderWizardTests {
         #expect(!foundationModels.supportsAPIKey)
     }
 
+    @Test func providerProbeClassifierSeparatesAuthAndLimitSignals() {
+        let codex = Self.snapshot(forProviderID: "openai.codex")
+        let recipe = ProviderAuthRecipe.recipe(for: codex.identifier)
+
+        let apiKeyAuth = ProviderProbeClassifier.authStatus(
+            provider: codex,
+            recipe: recipe,
+            environment: ["OPENAI_API_KEY": "sk-test"]
+        )
+        #expect(apiKeyAuth == .apiKeyPresent)
+
+        let quota = ProviderProbeClassifier.limitStatus(fromOutput: "Error: quota exceeded for current plan")
+        let rate = ProviderProbeClassifier.limitStatus(fromOutput: "HTTP 429 too many requests")
+        let context = ProviderProbeClassifier.limitStatus(fromOutput: "Exceeded model context window size")
+
+        #expect(quota == .quotaLimited)
+        #expect(rate == .rateLimited)
+        #expect(context == .contextLimited)
+    }
+
     @Test func deepSeekDefaultIncludesCustomProfileNote() {
         let arguments = GenericCLIAdapter.defaultCommandArguments(
             for: "deepseek.api",

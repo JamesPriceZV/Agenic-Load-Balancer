@@ -230,6 +230,7 @@ struct CommandBarView: View {
             providers: providers
         )
         let accuracy = AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+        let reliability = ProviderReliabilityBuilder.build(providers: providers, outcomes: outcomes)
         return CommandBarContext(
             prompt: prompt,
             mode: selectedMode,
@@ -239,6 +240,7 @@ struct CommandBarView: View {
             providers: providers.map { $0.snapshot() },
             usage: usage,
             accuracy: accuracy,
+            reliability: reliability,
             coordinationEvents: coordinationEvents.map { $0.snapshot() }
         )
     }

@@ -46,6 +46,22 @@ struct ProviderPerformanceSummary: Sendable, Hashable, Identifiable {
     var id: String { providerID }
 }
 
+struct ProviderReliabilitySnapshot: Sendable, Hashable, Identifiable {
+    let providerID: String
+    let providerName: String
+    let recentRunCount: Int
+    let succeededRunCount: Int
+    let failedRunCount: Int
+    let cancelledRunCount: Int
+    let quotaLimitedRunCount: Int
+    let rateLimitedRunCount: Int
+    let contextLimitedRunCount: Int
+    let reliabilityScore: Double
+    let summary: String
+
+    var id: String { providerID }
+}
+
 enum PerformanceHistoryBuilder {
     /// Build per-provider performance summaries.
     ///
@@ -146,5 +162,90 @@ enum PerformanceHistoryBuilder {
                 trendline: trendline
             )
         }
+    }
+}
+
+enum ProviderReliabilityBuilder {
+    static func build(
+        providers: [AgentProviderProfile],
+        outcomes: [RunOutcomeRecord],
+        recentLimit: Int = 12
+    ) -> [ProviderReliabilitySnapshot] {
+        let outcomesByProvider = Dictionary(grouping: outcomes, by: { $0.providerID })
+
+        return providers.map { provider in
+            let recent = Array(
+                (outcomesByProvider[provider.identifier] ?? [])
+                    .filter { outcome in
+                        switch RunStatus(rawValue: outcome.status) {
+                        case .succeeded, .failed, .cancelled:
+                            return true
+                        case .proposed, .approved, .running, .none:
+                            return false
+                        }
+                    }
+                    .sorted { $0.startedAt < $1.startedAt }
+                    .suffix(recentLimit)
+            )
+
+            let succeeded = recent.filter { $0.status == RunStatus.succeeded.rawValue }
+            let failed = recent.filter { $0.status == RunStatus.failed.rawValue }
+            let cancelled = recent.filter { $0.status == RunStatus.cancelled.rawValue }
+            let limitStatuses = recent.map { ProviderProbeClassifier.limitStatus(fromOutput: failureText(for: $0)) }
+            let quotaLimited = limitStatuses.filter { $0 == .quotaLimited || $0 == .subscriptionLimited }.count
+            let rateLimited = limitStatuses.filter { $0 == .rateLimited }.count
+            let contextLimited = limitStatuses.filter { $0 == .contextLimited }.count
+
+            let total = recent.count
+            let reliabilityScore: Double
+            if total == 0 {
+                reliabilityScore = 0.70
+            } else {
+                let successRate = Double(succeeded.count) / Double(total)
+                let failureRate = Double(failed.count) / Double(total)
+                let cancelRate = Double(cancelled.count) / Double(total)
+                let limitPenalty = Double(quotaLimited + rateLimited + contextLimited) / Double(max(total, 1))
+                reliabilityScore = max(
+                    0,
+                    min(
+                        1,
+                        0.48 + successRate * 0.42 - failureRate * 0.20 - cancelRate * 0.08 - limitPenalty * 0.14
+                    )
+                )
+            }
+
+            let summary: String
+            if total == 0 {
+                summary = "No recent run history; using neutral reliability."
+            } else {
+                summary = "\(succeeded.count)/\(total) recent run(s) succeeded; \(failed.count) failed; \(cancelled.count) cancelled."
+            }
+
+            return ProviderReliabilitySnapshot(
+                providerID: provider.identifier,
+                providerName: provider.displayName,
+                recentRunCount: total,
+                succeededRunCount: succeeded.count,
+                failedRunCount: failed.count,
+                cancelledRunCount: cancelled.count,
+                quotaLimitedRunCount: quotaLimited,
+                rateLimitedRunCount: rateLimited,
+                contextLimitedRunCount: contextLimited,
+                reliabilityScore: reliabilityScore,
+                summary: summary
+            )
+        }
+    }
+
+    private static func failureText(for outcome: RunOutcomeRecord) -> String {
+        [
+            outcome.buildResult,
+            outcome.userFeedback,
+            outcome.aiOneLineDescription,
+            outcome.continuationSummary,
+            outcome.contextBudgetSummary,
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
     }
 }

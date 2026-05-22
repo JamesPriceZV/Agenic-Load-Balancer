@@ -24,6 +24,7 @@ struct RoutingTieBreakInput: Sendable {
     var candidates: [RoutingScoreBreakdown]
     var usage: [UsageSnapshot]
     var accuracy: [AccuracySnapshot]
+    var reliability: [ProviderReliabilitySnapshot]
     var coordinationEvents: [CoordinationEventSnapshot]
 }
 
@@ -125,6 +126,7 @@ actor RoutingRecommendationCoordinator {
         providers: [AgentProviderSnapshot],
         usage: [UsageSnapshot],
         accuracy: [AccuracySnapshot],
+        reliability: [ProviderReliabilitySnapshot] = [],
         coordinationEvents: [CoordinationEventSnapshot]
     ) async -> RoutingRecommendation {
         let ranked = await routingEngine.rank(
@@ -133,6 +135,7 @@ actor RoutingRecommendationCoordinator {
             providers: providers,
             usage: usage,
             accuracy: accuracy,
+            reliability: reliability,
             coordinationEvents: coordinationEvents
         )
         let candidates = RoutingEngine.closeScoreCandidates(from: ranked)
@@ -146,6 +149,7 @@ actor RoutingRecommendationCoordinator {
             candidates: candidates,
             usage: usage,
             accuracy: accuracy,
+            reliability: reliability,
             coordinationEvents: coordinationEvents
         )
         guard let tieBreak = try? await tieBreaker.breakTie(input: input),
@@ -220,6 +224,9 @@ struct LiveFoundationModelsRoutingTieBreaker: RoutingTieBreaking {
         Accuracy:
         \(accuracyText(input.accuracy))
 
+        Reliability:
+        \(reliabilityText(input.reliability))
+
         Active coordination events:
         \(coordinationText(input.coordinationEvents))
         """
@@ -235,10 +242,12 @@ struct LiveFoundationModelsRoutingTieBreaker: RoutingTieBreaking {
                 "capability=\(candidate.capabilityScore.formatted(.number.precision(.fractionLength(2))))",
                 "limit=\(candidate.limitScore.formatted(.number.precision(.fractionLength(2))))",
                 "accuracy=\(candidate.accuracyScore.formatted(.number.precision(.fractionLength(2))))",
+                "reliability=\(candidate.reliabilityScore.formatted(.number.precision(.fractionLength(2))))",
                 "speed=\(candidate.speedScore.formatted(.number.precision(.fractionLength(2))))",
                 "cost=\(candidate.costScore.formatted(.number.precision(.fractionLength(2))))",
                 "rationale=\(candidate.rationale)",
                 "limitImpact=\(candidate.limitImpact)",
+                "reliabilityImpact=\(candidate.reliabilityImpact)",
                 "coordinationWarning=\(candidate.coordinationWarning)",
             ].joined(separator: " | ")
         }
@@ -257,6 +266,14 @@ struct LiveFoundationModelsRoutingTieBreaker: RoutingTieBreaking {
         guard !accuracy.isEmpty else { return "No accuracy snapshots." }
         return accuracy.map { snapshot in
             "\(snapshot.providerID): average=\(snapshot.averageScore), rated=\(snapshot.totalRatedRuns), repair=\(snapshot.repairCount), failure=\(snapshot.failureCount)"
+        }
+        .joined(separator: "\n")
+    }
+
+    private static func reliabilityText(_ reliability: [ProviderReliabilitySnapshot]) -> String {
+        guard !reliability.isEmpty else { return "No reliability snapshots." }
+        return reliability.map { snapshot in
+            "\(snapshot.providerID): score=\(snapshot.reliabilityScore), recent=\(snapshot.recentRunCount), failed=\(snapshot.failedRunCount), cancelled=\(snapshot.cancelledRunCount), quota=\(snapshot.quotaLimitedRunCount), rate=\(snapshot.rateLimitedRunCount), context=\(snapshot.contextLimitedRunCount)"
         }
         .joined(separator: "\n")
     }

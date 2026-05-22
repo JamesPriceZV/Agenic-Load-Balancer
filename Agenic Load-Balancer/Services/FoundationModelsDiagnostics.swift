@@ -309,6 +309,7 @@ struct FoundationModelsDiagnosticsRunner: FoundationModelsDiagnosticsRunning {
             ],
             usage: diagnosticUsage,
             accuracy: diagnosticAccuracy,
+            reliability: [],
             coordinationEvents: []
         )
     }

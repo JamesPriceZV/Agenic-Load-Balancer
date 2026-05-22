@@ -17,11 +17,13 @@ struct RoutingScoreBreakdown: Identifiable, Sendable, Hashable {
     let capabilityScore: Double
     let limitScore: Double
     let accuracyScore: Double
+    let reliabilityScore: Double
     let speedScore: Double
     let costScore: Double
     let rationale: String
     let estimatedCostUSD: Double
     let limitImpact: String
+    let reliabilityImpact: String
     let coordinationWarning: String
 
     init(
@@ -34,11 +36,13 @@ struct RoutingScoreBreakdown: Identifiable, Sendable, Hashable {
         capabilityScore: Double,
         limitScore: Double,
         accuracyScore: Double,
+        reliabilityScore: Double = 0.70,
         speedScore: Double,
         costScore: Double,
         rationale: String,
         estimatedCostUSD: Double,
         limitImpact: String,
+        reliabilityImpact: String = "No recent reliability trend yet.",
         coordinationWarning: String
     ) {
         self.id = id
@@ -50,11 +54,13 @@ struct RoutingScoreBreakdown: Identifiable, Sendable, Hashable {
         self.capabilityScore = capabilityScore
         self.limitScore = limitScore
         self.accuracyScore = accuracyScore
+        self.reliabilityScore = reliabilityScore
         self.speedScore = speedScore
         self.costScore = costScore
         self.rationale = rationale
         self.estimatedCostUSD = estimatedCostUSD
         self.limitImpact = limitImpact
+        self.reliabilityImpact = reliabilityImpact
         self.coordinationWarning = coordinationWarning
     }
 }
@@ -79,11 +85,13 @@ actor RoutingEngine {
         providers: [AgentProviderSnapshot],
         usage: [UsageSnapshot],
         accuracy: [AccuracySnapshot],
+        reliability: [ProviderReliabilitySnapshot] = [],
         coordinationEvents: [CoordinationEventSnapshot]
     ) -> [RoutingScoreBreakdown] {
         let promptSignals = PromptSignalAnalyzer.analyze(prompt)
         let usageByProvider = Dictionary(uniqueKeysWithValues: usage.map { ($0.providerID, $0) })
         let accuracyByProvider = Dictionary(uniqueKeysWithValues: accuracy.map { ($0.providerID, $0) })
+        let reliabilityByProvider = Dictionary(uniqueKeysWithValues: reliability.map { ($0.providerID, $0) })
         let activeConflicts = coordinationEvents.filter { event in
             CoordinationStatus.isActiveForPreflight(event.status)
         }
@@ -97,19 +105,22 @@ actor RoutingEngine {
                 let capabilityScore = scoreCapability(provider, mode: mode, promptSignals: promptSignals)
                 let limitScore = max(0, 1 - (providerUsage?.limitPressure ?? 0.18))
                 let accuracyScore = providerAccuracy?.averageScore ?? 0.62
+                let reliabilitySnapshot = reliabilityByProvider[provider.identifier]
+                let reliabilityScore = reliabilitySnapshot?.reliabilityScore ?? scoreReliability(from: providerUsage)
                 let speedScore = scoreSpeed(providerID: provider.identifier, usage: providerUsage)
                 let estimatedCost = estimateCost(prompt: prompt, usage: providerUsage, provider: provider)
                 let costScore = scoreCost(estimatedCost)
                 let coordinationWarning = coordinationWarning(for: mode, activeConflicts: activeConflicts)
 
                 let weightedScore =
-                    availabilityScore * 0.24 +
-                    capabilityScore * 0.20 +
-                    limitScore * 0.18 +
-                    accuracyScore * 0.20 +
-                    speedScore * 0.08 +
-                    costScore * 0.06 +
-                    (coordinationWarning.isEmpty ? 0.04 : 0)
+                    availabilityScore * 0.22 +
+                    capabilityScore * 0.18 +
+                    limitScore * 0.17 +
+                    accuracyScore * 0.18 +
+                    reliabilityScore * 0.12 +
+                    speedScore * 0.07 +
+                    costScore * 0.04 +
+                    (coordinationWarning.isEmpty ? 0.02 : 0)
 
                 return RoutingScoreBreakdown(
                     providerID: provider.identifier,
@@ -120,6 +131,7 @@ actor RoutingEngine {
                     capabilityScore: capabilityScore,
                     limitScore: limitScore,
                     accuracyScore: accuracyScore,
+                    reliabilityScore: reliabilityScore,
                     speedScore: speedScore,
                     costScore: costScore,
                     rationale: rationale(
@@ -129,10 +141,12 @@ actor RoutingEngine {
                         capabilityScore: capabilityScore,
                         limitScore: limitScore,
                         accuracyScore: accuracyScore,
+                        reliabilityScore: reliabilityScore,
                         coordinationWarning: coordinationWarning
                     ),
                     estimatedCostUSD: estimatedCost,
                     limitImpact: limitImpact(providerUsage),
+                    reliabilityImpact: reliabilityImpact(reliabilitySnapshot, usage: providerUsage),
                     coordinationWarning: coordinationWarning
                 )
             }
@@ -194,6 +208,14 @@ actor RoutingEngine {
         return max(0.2, 1 - min(latency / 900, 0.8))
     }
 
+    private func scoreReliability(from usage: UsageSnapshot?) -> Double {
+        guard let usage else { return 0.70 }
+        let cancellations = Double(usage.cancelledRunsToday)
+        let total = Double(usage.succeededRunsToday + usage.failedRunsToday + usage.cancelledRunsToday)
+        guard total > 0 else { return 0.70 }
+        return max(0, min(1, usage.successRate * 0.86 + (1 - min(cancellations / total, 1)) * 0.14))
+    }
+
     private func estimateCost(prompt: String, usage: UsageSnapshot?, provider: AgentProviderSnapshot) -> Double {
         let approximateTokens = max(250, prompt.count / 4)
         let pressureMultiplier = 1 + (usage?.limitPressure ?? 0)
@@ -223,6 +245,25 @@ actor RoutingEngine {
         }
     }
 
+    private func reliabilityImpact(
+        _ reliability: ProviderReliabilitySnapshot?,
+        usage: UsageSnapshot?
+    ) -> String {
+        if let reliability {
+            var parts = [
+                "\(reliability.reliabilityScore.percentString) recent reliability",
+                reliability.summary,
+            ]
+            let limiting = reliability.quotaLimitedRunCount + reliability.rateLimitedRunCount + reliability.contextLimitedRunCount
+            if limiting > 0 {
+                parts.append("\(limiting) recent limit/context signal(s).")
+            }
+            return parts.joined(separator: "; ")
+        }
+        guard let usage else { return "No recent reliability trend yet." }
+        return "\(usage.successRate.percentString) same-day success rate; \(usage.failedRunsToday) failed, \(usage.cancelledRunsToday) cancelled."
+    }
+
     private func coordinationWarning(
         for mode: AgentExecutionMode,
         activeConflicts: [CoordinationEventSnapshot]
@@ -241,6 +282,7 @@ actor RoutingEngine {
         capabilityScore: Double,
         limitScore: Double,
         accuracyScore: Double,
+        reliabilityScore: Double,
         coordinationWarning: String
     ) -> String {
         var parts = [
@@ -248,6 +290,7 @@ actor RoutingEngine {
             "\(capabilityScore.percentString) on \(mode.label) fit",
             "\(limitScore.percentString) on limit headroom",
             "\(accuracyScore.percentString) on observed accuracy",
+            "\(reliabilityScore.percentString) on recent reliability",
         ]
         if !coordinationWarning.isEmpty {
             parts.append(coordinationWarning)
@@ -413,10 +456,12 @@ enum DashboardMetricFactory {
     static func heatmapCells(
         providers: [AgentProviderProfile],
         usage: [UsageSnapshot],
-        accuracy: [AccuracySnapshot]
+        accuracy: [AccuracySnapshot],
+        reliability: [ProviderReliabilitySnapshot] = []
     ) -> [DashboardHeatmapCell] {
         let usageByProvider = Dictionary(uniqueKeysWithValues: usage.map { ($0.providerID, $0) })
         let accuracyByProvider = Dictionary(uniqueKeysWithValues: accuracy.map { ($0.providerID, $0) })
+        let reliabilityByProvider = Dictionary(uniqueKeysWithValues: reliability.map { ($0.providerID, $0) })
 
         return providers.flatMap { provider in
             let providerUsage = usageByProvider[provider.identifier]
@@ -427,6 +472,7 @@ enum DashboardMetricFactory {
             let costValue = providerUsage?.estimatedCostToday ?? 0
             let latencySeconds = providerUsage?.averageLatencySeconds ?? 0
             let successRate = providerUsage?.successRate ?? 1.0
+            let reliabilityScore = reliabilityByProvider[provider.identifier]?.reliabilityScore ?? 0.70
 
             return [
                 DashboardHeatmapCell(
@@ -472,6 +518,14 @@ enum DashboardMetricFactory {
                     value: successRate,
                     formattedValue: successRate.percentString,
                     accessibilitySummary: "\(provider.displayName) success rate \(successRate.percentString)"
+                ),
+                DashboardHeatmapCell(
+                    providerID: provider.identifier,
+                    providerName: provider.displayName,
+                    metricName: "Reliability",
+                    value: reliabilityScore,
+                    formattedValue: reliabilityScore.percentString,
+                    accessibilitySummary: "\(provider.displayName) recent reliability \(reliabilityScore.percentString)"
                 ),
                 DashboardHeatmapCell(
                     providerID: provider.identifier,

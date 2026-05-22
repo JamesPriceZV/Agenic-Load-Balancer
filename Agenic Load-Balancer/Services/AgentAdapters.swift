@@ -99,13 +99,18 @@ struct GenericCLIAdapter: AgentCLIAdapter {
     }
 
     func availability(for provider: AgentProviderSnapshot) async -> ProviderHealthSnapshot {
+        let recipe = ProviderAuthRecipe.recipe(for: provider.identifier)
+        let authStatus = ProviderProbeClassifier.authStatus(provider: provider, recipe: recipe)
+
         guard provider.isEnabled else {
             return ProviderHealthSnapshot(
                 providerID: provider.identifier,
                 availabilityState: .disabled,
                 detectedVersion: nil,
                 message: "Provider is disabled.",
-                checkedAt: Date()
+                checkedAt: Date(),
+                authStatus: authStatus,
+                limitStatus: .unknown
             )
         }
 
@@ -122,7 +127,10 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                     availabilityState: .available,
                     detectedVersion: version,
                     message: "Detected via custom command profile at \(overridePath).",
-                    checkedAt: Date()
+                    checkedAt: Date(),
+                    authStatus: profile.environment.isEmpty ? authStatus : .customProfile,
+                    limitStatus: .unknown,
+                    detailLines: ["Custom command profile is enabled."]
                 )
             } else {
                 return ProviderHealthSnapshot(
@@ -130,7 +138,10 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                     availabilityState: .missing,
                     detectedVersion: nil,
                     message: "Custom command profile path is not executable: \(overridePath).",
-                    checkedAt: Date()
+                    checkedAt: Date(),
+                    authStatus: profile.environment.isEmpty ? authStatus : .customProfile,
+                    limitStatus: .unknown,
+                    detailLines: ["Custom command profile is enabled but cannot launch."]
                 )
             }
         }
@@ -141,7 +152,12 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                 availabilityState: .unknown,
                 detectedVersion: nil,
                 message: "Custom/API profile requires user configuration.",
-                checkedAt: Date()
+                checkedAt: Date(),
+                authStatus: authStatus,
+                limitStatus: .unknown,
+                detailLines: recipe.apiKeyEnvironmentVariables.isEmpty
+                    ? []
+                    : ["API environment lanes: \(recipe.apiKeyEnvironmentVariables.joined(separator: ", "))"]
             )
         }
 
@@ -151,7 +167,9 @@ struct GenericCLIAdapter: AgentCLIAdapter {
                 availabilityState: .missing,
                 detectedVersion: nil,
                 message: "`\(provider.binaryName)` was not found on PATH or common developer-tool paths.",
-                checkedAt: Date()
+                checkedAt: Date(),
+                authStatus: authStatus,
+                limitStatus: .unknown
             )
         }
 
@@ -161,7 +179,10 @@ struct GenericCLIAdapter: AgentCLIAdapter {
             availabilityState: .available,
             detectedVersion: version,
             message: "Detected at \(executablePath).",
-            checkedAt: Date()
+            checkedAt: Date(),
+            authStatus: authStatus,
+            limitStatus: .unknown,
+            detailLines: recipe.authProbeCommands.map { "\($0.title): \($0.command)" }
         )
     }
 

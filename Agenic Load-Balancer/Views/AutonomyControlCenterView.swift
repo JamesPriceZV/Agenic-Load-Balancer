@@ -521,12 +521,14 @@ struct AutonomyControlCenterView: View {
             providers: providers
         )
         let accuracy = AccuracySnapshotBuilder.build(from: outcomes, providers: providers)
+        let reliability = ProviderReliabilityBuilder.build(providers: providers, outcomes: outcomes)
         let recommendation = await AppServices.routingRecommendation.recommend(
             prompt: prompt,
             mode: task.mode,
             providers: providers.map { $0.snapshot() },
             usage: usage,
             accuracy: accuracy,
+            reliability: reliability,
             coordinationEvents: coordinationEvents.map { $0.snapshot() }
         )
         guard let score = recommendation.selected,

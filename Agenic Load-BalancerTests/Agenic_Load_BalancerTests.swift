@@ -105,6 +105,61 @@ struct Agenic_Load_BalancerTests {
         #expect((scores.first?.totalScore ?? 0) > 0.75)
     }
 
+    @MainActor
+    @Test func routingWeightsRecentReliabilityTrend() async throws {
+        let shaky = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
+        shaky.installedState = ProviderAvailabilityState.available.rawValue
+        shaky.authState = ProviderAuthState.authenticated.rawValue
+
+        let steady = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[1])
+        steady.installedState = ProviderAvailabilityState.available.rawValue
+        steady.authState = ProviderAuthState.authenticated.rawValue
+
+        let scores = await RoutingEngine().rank(
+            prompt: "Review and implement a routing telemetry fix.",
+            mode: .implementation,
+            providers: [shaky.snapshot(), steady.snapshot()],
+            usage: [],
+            accuracy: [
+                AccuracySnapshot(providerID: shaky.identifier, totalRatedRuns: 3, averageScore: 0.8, correctCount: 2, repairCount: 1, failureCount: 0),
+                AccuracySnapshot(providerID: steady.identifier, totalRatedRuns: 3, averageScore: 0.8, correctCount: 2, repairCount: 1, failureCount: 0),
+            ],
+            reliability: [
+                ProviderReliabilitySnapshot(
+                    providerID: shaky.identifier,
+                    providerName: shaky.displayName,
+                    recentRunCount: 6,
+                    succeededRunCount: 2,
+                    failedRunCount: 4,
+                    cancelledRunCount: 0,
+                    quotaLimitedRunCount: 2,
+                    rateLimitedRunCount: 0,
+                    contextLimitedRunCount: 1,
+                    reliabilityScore: 0.32,
+                    summary: "Recent failures and limit signals."
+                ),
+                ProviderReliabilitySnapshot(
+                    providerID: steady.identifier,
+                    providerName: steady.displayName,
+                    recentRunCount: 6,
+                    succeededRunCount: 6,
+                    failedRunCount: 0,
+                    cancelledRunCount: 0,
+                    quotaLimitedRunCount: 0,
+                    rateLimitedRunCount: 0,
+                    contextLimitedRunCount: 0,
+                    reliabilityScore: 0.96,
+                    summary: "Stable recent runs."
+                ),
+            ],
+            coordinationEvents: []
+        )
+
+        #expect(scores.first?.providerID == steady.identifier)
+        #expect(scores.first?.rationale.contains("recent reliability") == true)
+        #expect(scores.first?.reliabilityImpact.contains("recent reliability") == true)
+    }
+
     @Test func agentNotesFileIsCreatedWithCoordinationRules() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("AgenicLoadBalancerTests-\(UUID().uuidString)", isDirectory: true)

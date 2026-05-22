@@ -1161,8 +1161,31 @@ struct ProviderHealthSnapshot: Identifiable, Sendable {
     let detectedVersion: String?
     let message: String
     let checkedAt: Date
+    let authStatus: ProviderProbeAuthStatus
+    let limitStatus: ProviderLimitProbeStatus
+    let detailLines: [String]
 
     var id: String { providerID }
+
+    init(
+        providerID: String,
+        availabilityState: ProviderAvailabilityState,
+        detectedVersion: String?,
+        message: String,
+        checkedAt: Date,
+        authStatus: ProviderProbeAuthStatus = .unknown,
+        limitStatus: ProviderLimitProbeStatus = .unknown,
+        detailLines: [String] = []
+    ) {
+        self.providerID = providerID
+        self.availabilityState = availabilityState
+        self.detectedVersion = detectedVersion
+        self.message = message
+        self.checkedAt = checkedAt
+        self.authStatus = authStatus
+        self.limitStatus = limitStatus
+        self.detailLines = detailLines
+    }
 }
 
 struct UsageSnapshot: Identifiable, Sendable {

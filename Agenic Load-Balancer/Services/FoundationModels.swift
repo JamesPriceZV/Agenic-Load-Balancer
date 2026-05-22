@@ -199,7 +199,9 @@ struct FoundationModelsAdapter: AgentCLIAdapter {
                 availabilityState: .disabled,
                 detectedVersion: nil,
                 message: "Provider is disabled.",
-                checkedAt: Date()
+                checkedAt: Date(),
+                authStatus: .notRequired,
+                limitStatus: .unknown
             )
         }
         let state = availabilityChecker.currentAvailability()
@@ -217,7 +219,10 @@ struct FoundationModelsAdapter: AgentCLIAdapter {
             availabilityState: mappedState,
             detectedVersion: state.isAvailable ? "Apple Foundation Models (on-device)" : nil,
             message: state.message,
-            checkedAt: Date()
+            checkedAt: Date(),
+            authStatus: .notRequired,
+            limitStatus: state.isAvailable ? .healthy : .unknown,
+            detailLines: ["Local on-device model availability is checked in process."]
         )
     }
 
