@@ -48,6 +48,15 @@ struct SnapshotPipelineTests {
         let provider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
         let secondProvider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[1])
         let setup = ProviderSetupRecord(providerID: provider.identifier, setupStage: "auth")
+        let commandProfile = ProviderCommandProfile(
+            providerID: provider.identifier,
+            displayName: "Codex custom",
+            executablePathOverride: "/Applications/Codex.app/Contents/Resources/codex",
+            argumentTemplate: "exec\n--json\n-",
+            environmentJSON: #"{"AGENT_MODE":"test"}"#,
+            isEnabled: true,
+            notes: "Snapshot profile"
+        )
         let thread = PromptThreadRecord(projectID: project.identifier, title: "Implement heatmap")
         let message = PromptMessageRecord(threadID: thread.identifier, role: "user", contentExcerpt: "Implement…")
         let usage = UsageLedgerEntry(
@@ -69,11 +78,51 @@ struct SnapshotPipelineTests {
         let event = CoordinationEventRecord(projectID: project.identifier, title: "Active step")
         let snapshot = CloudSnapshotRecord(scope: "test", recordCounts: "n=1", checksum: "abc")
         let keychain = KeychainReferenceRecord(providerID: provider.identifier, serviceName: "svc", accountName: "acct", purpose: "auth")
+        let goal = AutonomyGoalRecord(projectID: project.identifier, title: "Goal", goalDescription: "Ship release")
+        let plan = AutonomyPlanRecord(goalID: goal.identifier, summary: "Plan release", taskIDsJSON: #"["task-1"]"#)
+        let task = AutonomyTaskRecord(
+            identifier: "task-1",
+            goalID: goal.identifier,
+            title: "Validate release",
+            detail: "Run gates",
+            mode: AgentExecutionMode.testBuild.rawValue,
+            assignedProviderID: provider.identifier,
+            validationCommand: "git diff --check"
+        )
+        let policy = AutonomyPolicyRecord(projectID: project.identifier, policyJSON: #"{"lane":"testOnly"}"#)
+        let peer = MachinePeerRecord(
+            displayName: "Studio Mac",
+            deviceFingerprintHash: "hash",
+            lastSeenAt: Date(),
+            syncStatus: MachineSyncStatus.current.rawValue
+        )
+        let operation = AutonomyOperationRecord(
+            entityID: task.identifier,
+            entityType: "AutonomyTaskRecord",
+            operationKind: "update",
+            lamportClock: 3,
+            machineID: peer.identifier,
+            payloadJSON: #"{"status":"planned"}"#
+        )
+        let conflict = ConflictResolutionRecord(
+            entityID: task.identifier,
+            conflictKind: "operationLogDivergence",
+            localPayloadJSON: #"{"status":"planned"}"#,
+            remotePayloadJSON: #"{"status":"blocked"}"#
+        )
+        let gate = ValidationGateRecord(
+            taskID: task.identifier,
+            command: "git diff --check",
+            status: "passed",
+            outputExcerpt: "clean"
+        )
+        let audit = AuditTrailRecord(goalID: goal.identifier, taskID: task.identifier, eventKind: "release", detail: "Snapshot coverage")
 
         context.insert(project)
         context.insert(provider)
         context.insert(secondProvider)
         context.insert(setup)
+        context.insert(commandProfile)
         context.insert(thread)
         context.insert(message)
         context.insert(usage)
@@ -82,6 +131,15 @@ struct SnapshotPipelineTests {
         context.insert(event)
         context.insert(snapshot)
         context.insert(keychain)
+        context.insert(goal)
+        context.insert(plan)
+        context.insert(task)
+        context.insert(policy)
+        context.insert(peer)
+        context.insert(operation)
+        context.insert(conflict)
+        context.insert(gate)
+        context.insert(audit)
         try context.save()
     }
 
@@ -103,6 +161,11 @@ struct SnapshotPipelineTests {
         #expect(decoded.body.projects.first?.allowShellTools == false)
         #expect(decoded.body.usageEntries.first?.cachedPromptTokens == 40)
         #expect(decoded.body.usageEntries.first?.reasoningTokens == 12)
+        #expect(decoded.body.providerCommandProfiles.first?.argumentTemplate.contains("--json") == true)
+        #expect(decoded.body.autonomyGoals.first?.title == "Goal")
+        #expect(decoded.body.autonomyTasks.first?.validationCommand == "git diff --check")
+        #expect(decoded.body.conflictResolutions.first?.conflictKind == "operationLogDivergence")
+        #expect(decoded.body.validationGates.first?.status == "passed")
         try SnapshotArchiveCodec.verify(decoded)
     }
 
@@ -117,14 +180,32 @@ struct SnapshotPipelineTests {
         #expect(counts[ModelKey.project] == 1)
         #expect(counts[ModelKey.providerProfile] == 2)
         #expect(counts[ModelKey.providerSetup] == 1)
+        #expect(counts[ModelKey.providerCommandProfile] == 1)
         #expect(counts[ModelKey.promptThread] == 1)
         #expect(counts[ModelKey.promptMessage] == 1)
         #expect(counts[ModelKey.usageLedger] == 1)
         #expect(counts[ModelKey.routingDecision] == 1)
         #expect(counts[ModelKey.runOutcome] == 1)
+        #expect(counts[ModelKey.runTranscriptSegment] == 0)
         #expect(counts[ModelKey.coordination] == 1)
         #expect(counts[ModelKey.cloudSnapshot] == 1)
         #expect(counts[ModelKey.keychainReference] == 1)
+        #expect(counts[ModelKey.autonomyGoal] == 1)
+        #expect(counts[ModelKey.autonomyPlan] == 1)
+        #expect(counts[ModelKey.autonomyTask] == 1)
+        #expect(counts[ModelKey.autonomyPolicy] == 1)
+        #expect(counts[ModelKey.machinePeer] == 1)
+        #expect(counts[ModelKey.autonomyOperation] == 1)
+        #expect(counts[ModelKey.conflictResolution] == 1)
+        #expect(counts[ModelKey.validationGate] == 1)
+        #expect(counts[ModelKey.auditTrail] == 1)
+    }
+
+    @Test func modelKeyRenderOrderCoversEverySwiftDataModel() {
+        let expected = Set(AgenicDataModel.models.map { String(describing: $0) })
+        let archived = Set(ModelKey.renderOrder)
+
+        #expect(archived == expected)
     }
 
     @Test func loadPreviewProducesSeparateContainer() throws {
@@ -196,6 +277,9 @@ struct SnapshotPipelineTests {
         #expect(projects.first?.name == "Archive")
         let providers = try liveContext.fetch(FetchDescriptor<AgentProviderProfile>())
         #expect(providers.count == 2)
+        let tasks = try liveContext.fetch(FetchDescriptor<AutonomyTaskRecord>())
+        #expect(tasks.count == 1)
+        #expect(tasks.first?.title == "Validate release")
     }
 
     @Test func applyMergeSkipsOverlappingIdentifiers() throws {

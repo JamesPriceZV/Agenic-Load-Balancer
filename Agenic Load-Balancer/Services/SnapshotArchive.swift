@@ -51,6 +51,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
     var projects: [ProjectDTO]
     var providers: [ProviderProfileDTO]
     var providerSetups: [ProviderSetupDTO]
+    var providerCommandProfiles: [ProviderCommandProfileDTO]
     var promptThreads: [PromptThreadDTO]
     var promptMessages: [PromptMessageDTO]
     var usageEntries: [UsageLedgerDTO]
@@ -60,11 +61,21 @@ struct PayloadBody: Sendable, Codable, Hashable {
     var coordinationEvents: [CoordinationEventDTO]
     var cloudSnapshots: [CloudSnapshotDTO]
     var keychainReferences: [KeychainReferenceDTO]
+    var autonomyGoals: [AutonomyGoalDTO]
+    var autonomyPlans: [AutonomyPlanDTO]
+    var autonomyTasks: [AutonomyTaskDTO]
+    var autonomyPolicies: [AutonomyPolicyDTO]
+    var machinePeers: [MachinePeerDTO]
+    var autonomyOperations: [AutonomyOperationDTO]
+    var conflictResolutions: [ConflictResolutionDTO]
+    var validationGates: [ValidationGateDTO]
+    var auditTrails: [AuditTrailDTO]
 
     enum CodingKeys: String, CodingKey {
         case projects
         case providers
         case providerSetups
+        case providerCommandProfiles
         case promptThreads
         case promptMessages
         case usageEntries
@@ -74,12 +85,22 @@ struct PayloadBody: Sendable, Codable, Hashable {
         case coordinationEvents
         case cloudSnapshots
         case keychainReferences
+        case autonomyGoals
+        case autonomyPlans
+        case autonomyTasks
+        case autonomyPolicies
+        case machinePeers
+        case autonomyOperations
+        case conflictResolutions
+        case validationGates
+        case auditTrails
     }
 
     init(
         projects: [ProjectDTO] = [],
         providers: [ProviderProfileDTO] = [],
         providerSetups: [ProviderSetupDTO] = [],
+        providerCommandProfiles: [ProviderCommandProfileDTO] = [],
         promptThreads: [PromptThreadDTO] = [],
         promptMessages: [PromptMessageDTO] = [],
         usageEntries: [UsageLedgerDTO] = [],
@@ -88,11 +109,21 @@ struct PayloadBody: Sendable, Codable, Hashable {
         runTranscriptSegments: [RunTranscriptSegmentDTO] = [],
         coordinationEvents: [CoordinationEventDTO] = [],
         cloudSnapshots: [CloudSnapshotDTO] = [],
-        keychainReferences: [KeychainReferenceDTO] = []
+        keychainReferences: [KeychainReferenceDTO] = [],
+        autonomyGoals: [AutonomyGoalDTO] = [],
+        autonomyPlans: [AutonomyPlanDTO] = [],
+        autonomyTasks: [AutonomyTaskDTO] = [],
+        autonomyPolicies: [AutonomyPolicyDTO] = [],
+        machinePeers: [MachinePeerDTO] = [],
+        autonomyOperations: [AutonomyOperationDTO] = [],
+        conflictResolutions: [ConflictResolutionDTO] = [],
+        validationGates: [ValidationGateDTO] = [],
+        auditTrails: [AuditTrailDTO] = []
     ) {
         self.projects = projects
         self.providers = providers
         self.providerSetups = providerSetups
+        self.providerCommandProfiles = providerCommandProfiles
         self.promptThreads = promptThreads
         self.promptMessages = promptMessages
         self.usageEntries = usageEntries
@@ -102,6 +133,15 @@ struct PayloadBody: Sendable, Codable, Hashable {
         self.coordinationEvents = coordinationEvents
         self.cloudSnapshots = cloudSnapshots
         self.keychainReferences = keychainReferences
+        self.autonomyGoals = autonomyGoals
+        self.autonomyPlans = autonomyPlans
+        self.autonomyTasks = autonomyTasks
+        self.autonomyPolicies = autonomyPolicies
+        self.machinePeers = machinePeers
+        self.autonomyOperations = autonomyOperations
+        self.conflictResolutions = conflictResolutions
+        self.validationGates = validationGates
+        self.auditTrails = auditTrails
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +149,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
         projects = try container.decodeIfPresent([ProjectDTO].self, forKey: .projects) ?? []
         providers = try container.decodeIfPresent([ProviderProfileDTO].self, forKey: .providers) ?? []
         providerSetups = try container.decodeIfPresent([ProviderSetupDTO].self, forKey: .providerSetups) ?? []
+        providerCommandProfiles = try container.decodeIfPresent([ProviderCommandProfileDTO].self, forKey: .providerCommandProfiles) ?? []
         promptThreads = try container.decodeIfPresent([PromptThreadDTO].self, forKey: .promptThreads) ?? []
         promptMessages = try container.decodeIfPresent([PromptMessageDTO].self, forKey: .promptMessages) ?? []
         usageEntries = try container.decodeIfPresent([UsageLedgerDTO].self, forKey: .usageEntries) ?? []
@@ -118,6 +159,15 @@ struct PayloadBody: Sendable, Codable, Hashable {
         coordinationEvents = try container.decodeIfPresent([CoordinationEventDTO].self, forKey: .coordinationEvents) ?? []
         cloudSnapshots = try container.decodeIfPresent([CloudSnapshotDTO].self, forKey: .cloudSnapshots) ?? []
         keychainReferences = try container.decodeIfPresent([KeychainReferenceDTO].self, forKey: .keychainReferences) ?? []
+        autonomyGoals = try container.decodeIfPresent([AutonomyGoalDTO].self, forKey: .autonomyGoals) ?? []
+        autonomyPlans = try container.decodeIfPresent([AutonomyPlanDTO].self, forKey: .autonomyPlans) ?? []
+        autonomyTasks = try container.decodeIfPresent([AutonomyTaskDTO].self, forKey: .autonomyTasks) ?? []
+        autonomyPolicies = try container.decodeIfPresent([AutonomyPolicyDTO].self, forKey: .autonomyPolicies) ?? []
+        machinePeers = try container.decodeIfPresent([MachinePeerDTO].self, forKey: .machinePeers) ?? []
+        autonomyOperations = try container.decodeIfPresent([AutonomyOperationDTO].self, forKey: .autonomyOperations) ?? []
+        conflictResolutions = try container.decodeIfPresent([ConflictResolutionDTO].self, forKey: .conflictResolutions) ?? []
+        validationGates = try container.decodeIfPresent([ValidationGateDTO].self, forKey: .validationGates) ?? []
+        auditTrails = try container.decodeIfPresent([AuditTrailDTO].self, forKey: .auditTrails) ?? []
     }
 
     /// Total record count across all model collections.
@@ -132,6 +182,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.project: projects.count,
             ModelKey.providerProfile: providers.count,
             ModelKey.providerSetup: providerSetups.count,
+            ModelKey.providerCommandProfile: providerCommandProfiles.count,
             ModelKey.promptThread: promptThreads.count,
             ModelKey.promptMessage: promptMessages.count,
             ModelKey.usageLedger: usageEntries.count,
@@ -141,6 +192,15 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.coordination: coordinationEvents.count,
             ModelKey.cloudSnapshot: cloudSnapshots.count,
             ModelKey.keychainReference: keychainReferences.count,
+            ModelKey.autonomyGoal: autonomyGoals.count,
+            ModelKey.autonomyPlan: autonomyPlans.count,
+            ModelKey.autonomyTask: autonomyTasks.count,
+            ModelKey.autonomyPolicy: autonomyPolicies.count,
+            ModelKey.machinePeer: machinePeers.count,
+            ModelKey.autonomyOperation: autonomyOperations.count,
+            ModelKey.conflictResolution: conflictResolutions.count,
+            ModelKey.validationGate: validationGates.count,
+            ModelKey.auditTrail: auditTrails.count,
         ]
     }
 
@@ -151,6 +211,7 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.project: Set(projects.map(\.identifier)),
             ModelKey.providerProfile: Set(providers.map(\.identifier)),
             ModelKey.providerSetup: Set(providerSetups.map(\.identifier)),
+            ModelKey.providerCommandProfile: Set(providerCommandProfiles.map(\.identifier)),
             ModelKey.promptThread: Set(promptThreads.map(\.identifier)),
             ModelKey.promptMessage: Set(promptMessages.map(\.identifier)),
             ModelKey.usageLedger: Set(usageEntries.map(\.identifier)),
@@ -160,6 +221,15 @@ struct PayloadBody: Sendable, Codable, Hashable {
             ModelKey.coordination: Set(coordinationEvents.map(\.identifier)),
             ModelKey.cloudSnapshot: Set(cloudSnapshots.map(\.identifier)),
             ModelKey.keychainReference: Set(keychainReferences.map(\.identifier)),
+            ModelKey.autonomyGoal: Set(autonomyGoals.map(\.identifier)),
+            ModelKey.autonomyPlan: Set(autonomyPlans.map(\.identifier)),
+            ModelKey.autonomyTask: Set(autonomyTasks.map(\.identifier)),
+            ModelKey.autonomyPolicy: Set(autonomyPolicies.map(\.identifier)),
+            ModelKey.machinePeer: Set(machinePeers.map(\.identifier)),
+            ModelKey.autonomyOperation: Set(autonomyOperations.map(\.identifier)),
+            ModelKey.conflictResolution: Set(conflictResolutions.map(\.identifier)),
+            ModelKey.validationGate: Set(validationGates.map(\.identifier)),
+            ModelKey.auditTrail: Set(auditTrails.map(\.identifier)),
         ]
     }
 }
@@ -172,6 +242,7 @@ enum ModelKey {
     static let promptMessage = "PromptMessageRecord"
     static let providerProfile = "AgentProviderProfile"
     static let providerSetup = "ProviderSetupRecord"
+    static let providerCommandProfile = "ProviderCommandProfile"
     static let usageLedger = "UsageLedgerEntry"
     static let routingDecision = "RoutingDecisionRecord"
     static let runOutcome = "RunOutcomeRecord"
@@ -179,6 +250,15 @@ enum ModelKey {
     static let coordination = "CoordinationEventRecord"
     static let cloudSnapshot = "CloudSnapshotRecord"
     static let keychainReference = "KeychainReferenceRecord"
+    static let autonomyGoal = "AutonomyGoalRecord"
+    static let autonomyPlan = "AutonomyPlanRecord"
+    static let autonomyTask = "AutonomyTaskRecord"
+    static let autonomyPolicy = "AutonomyPolicyRecord"
+    static let machinePeer = "MachinePeerRecord"
+    static let autonomyOperation = "AutonomyOperationRecord"
+    static let conflictResolution = "ConflictResolutionRecord"
+    static let validationGate = "ValidationGateRecord"
+    static let auditTrail = "AuditTrailRecord"
 
     static let displayLabels: [String: String] = [
         project: "Projects",
@@ -186,6 +266,7 @@ enum ModelKey {
         promptMessage: "Prompt messages",
         providerProfile: "Providers",
         providerSetup: "Provider setups",
+        providerCommandProfile: "Provider command profiles",
         usageLedger: "Usage entries",
         routingDecision: "Routing decisions",
         runOutcome: "Run outcomes",
@@ -193,12 +274,22 @@ enum ModelKey {
         coordination: "Coordination events",
         cloudSnapshot: "Snapshot metadata",
         keychainReference: "Keychain references",
+        autonomyGoal: "Autonomy goals",
+        autonomyPlan: "Autonomy plans",
+        autonomyTask: "Autonomy tasks",
+        autonomyPolicy: "Autonomy policies",
+        machinePeer: "Machine peers",
+        autonomyOperation: "Autonomy operations",
+        conflictResolution: "Conflict resolutions",
+        validationGate: "Validation gates",
+        auditTrail: "Audit trail",
     ]
 
     static let renderOrder: [String] = [
         project,
         providerProfile,
         providerSetup,
+        providerCommandProfile,
         promptThread,
         promptMessage,
         usageLedger,
@@ -208,6 +299,15 @@ enum ModelKey {
         coordination,
         cloudSnapshot,
         keychainReference,
+        autonomyGoal,
+        autonomyPlan,
+        autonomyTask,
+        autonomyPolicy,
+        machinePeer,
+        autonomyOperation,
+        conflictResolution,
+        validationGate,
+        auditTrail,
     ]
 }
 
@@ -450,6 +550,48 @@ struct ProviderSetupDTO: Sendable, Codable, Hashable, Identifiable {
             lastError: lastError,
             installConfirmed: installConfirmed,
             authConfirmed: authConfirmed,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct ProviderCommandProfileDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let providerID: String
+    let displayName: String
+    let executablePathOverride: String?
+    let argumentTemplate: String
+    let environmentJSON: String
+    let isEnabled: Bool
+    let notes: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: ProviderCommandProfile) {
+        identifier = record.identifier
+        providerID = record.providerID
+        displayName = record.displayName
+        executablePathOverride = record.executablePathOverride
+        argumentTemplate = record.argumentTemplate
+        environmentJSON = record.environmentJSON
+        isEnabled = record.isEnabled
+        notes = record.notes
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> ProviderCommandProfile {
+        ProviderCommandProfile(
+            identifier: identifier,
+            providerID: providerID,
+            displayName: displayName,
+            executablePathOverride: executablePathOverride,
+            argumentTemplate: argumentTemplate,
+            environmentJSON: environmentJSON,
+            isEnabled: isEnabled,
+            notes: notes,
+            createdAt: createdAt,
             updatedAt: updatedAt
         )
     }
@@ -798,6 +940,318 @@ struct KeychainReferenceDTO: Sendable, Codable, Hashable, Identifiable {
             purpose: purpose,
             createdAt: createdAt,
             updatedAt: updatedAt
+        )
+    }
+}
+
+struct AutonomyGoalDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let projectID: String?
+    let title: String
+    let goalDescription: String
+    let status: String
+    let autonomyLevel: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: AutonomyGoalRecord) {
+        identifier = record.identifier
+        projectID = record.projectID
+        title = record.title
+        goalDescription = record.goalDescription
+        status = record.status
+        autonomyLevel = record.autonomyLevel
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> AutonomyGoalRecord {
+        AutonomyGoalRecord(
+            identifier: identifier,
+            projectID: projectID,
+            title: title,
+            goalDescription: goalDescription,
+            status: status,
+            autonomyLevel: autonomyLevel,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct AutonomyPlanDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let goalID: String?
+    let summary: String
+    let taskIDsJSON: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: AutonomyPlanRecord) {
+        identifier = record.identifier
+        goalID = record.goalID
+        summary = record.summary
+        taskIDsJSON = record.taskIDsJSON
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> AutonomyPlanRecord {
+        AutonomyPlanRecord(
+            identifier: identifier,
+            goalID: goalID,
+            summary: summary,
+            taskIDsJSON: taskIDsJSON,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct AutonomyTaskDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let goalID: String?
+    let parentTaskID: String?
+    let title: String
+    let detail: String
+    let status: String
+    let mode: String
+    let assignedProviderID: String?
+    let dependencyIDsJSON: String
+    let validationCommand: String?
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: AutonomyTaskRecord) {
+        identifier = record.identifier
+        goalID = record.goalID
+        parentTaskID = record.parentTaskID
+        title = record.title
+        detail = record.detail
+        status = record.status
+        mode = record.mode
+        assignedProviderID = record.assignedProviderID
+        dependencyIDsJSON = record.dependencyIDsJSON
+        validationCommand = record.validationCommand
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> AutonomyTaskRecord {
+        AutonomyTaskRecord(
+            identifier: identifier,
+            goalID: goalID,
+            parentTaskID: parentTaskID,
+            title: title,
+            detail: detail,
+            status: status,
+            mode: mode,
+            assignedProviderID: assignedProviderID,
+            dependencyIDsJSON: dependencyIDsJSON,
+            validationCommand: validationCommand,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct AutonomyPolicyDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let projectID: String?
+    let policyJSON: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: AutonomyPolicyRecord) {
+        identifier = record.identifier
+        projectID = record.projectID
+        policyJSON = record.policyJSON
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> AutonomyPolicyRecord {
+        AutonomyPolicyRecord(
+            identifier: identifier,
+            projectID: projectID,
+            policyJSON: policyJSON,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct MachinePeerDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let displayName: String
+    let deviceFingerprintHash: String
+    let lastSeenAt: Date?
+    let syncStatus: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(from record: MachinePeerRecord) {
+        identifier = record.identifier
+        displayName = record.displayName
+        deviceFingerprintHash = record.deviceFingerprintHash
+        lastSeenAt = record.lastSeenAt
+        syncStatus = record.syncStatus
+        createdAt = record.createdAt
+        updatedAt = record.updatedAt
+    }
+
+    func makeRecord() -> MachinePeerRecord {
+        MachinePeerRecord(
+            identifier: identifier,
+            displayName: displayName,
+            deviceFingerprintHash: deviceFingerprintHash,
+            lastSeenAt: lastSeenAt,
+            syncStatus: syncStatus,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+struct AutonomyOperationDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let entityID: String
+    let entityType: String
+    let operationKind: String
+    let lamportClock: Int
+    let machineID: String
+    let payloadJSON: String
+    let createdAt: Date
+
+    init(from record: AutonomyOperationRecord) {
+        identifier = record.identifier
+        entityID = record.entityID
+        entityType = record.entityType
+        operationKind = record.operationKind
+        lamportClock = record.lamportClock
+        machineID = record.machineID
+        payloadJSON = record.payloadJSON
+        createdAt = record.createdAt
+    }
+
+    func makeRecord() -> AutonomyOperationRecord {
+        AutonomyOperationRecord(
+            identifier: identifier,
+            entityID: entityID,
+            entityType: entityType,
+            operationKind: operationKind,
+            lamportClock: lamportClock,
+            machineID: machineID,
+            payloadJSON: payloadJSON,
+            createdAt: createdAt
+        )
+    }
+}
+
+struct ConflictResolutionDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let entityID: String
+    let conflictKind: String
+    let status: String
+    let localPayloadJSON: String
+    let remotePayloadJSON: String
+    let resolutionJSON: String
+    let createdAt: Date
+    let resolvedAt: Date?
+
+    init(from record: ConflictResolutionRecord) {
+        identifier = record.identifier
+        entityID = record.entityID
+        conflictKind = record.conflictKind
+        status = record.status
+        localPayloadJSON = record.localPayloadJSON
+        remotePayloadJSON = record.remotePayloadJSON
+        resolutionJSON = record.resolutionJSON
+        createdAt = record.createdAt
+        resolvedAt = record.resolvedAt
+    }
+
+    func makeRecord() -> ConflictResolutionRecord {
+        ConflictResolutionRecord(
+            identifier: identifier,
+            entityID: entityID,
+            conflictKind: conflictKind,
+            status: status,
+            localPayloadJSON: localPayloadJSON,
+            remotePayloadJSON: remotePayloadJSON,
+            resolutionJSON: resolutionJSON,
+            createdAt: createdAt,
+            resolvedAt: resolvedAt
+        )
+    }
+}
+
+struct ValidationGateDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let taskID: String?
+    let command: String
+    let status: String
+    let outputExcerpt: String
+    let startedAt: Date?
+    let endedAt: Date?
+
+    init(from record: ValidationGateRecord) {
+        identifier = record.identifier
+        taskID = record.taskID
+        command = record.command
+        status = record.status
+        outputExcerpt = record.outputExcerpt
+        startedAt = record.startedAt
+        endedAt = record.endedAt
+    }
+
+    func makeRecord() -> ValidationGateRecord {
+        ValidationGateRecord(
+            identifier: identifier,
+            taskID: taskID,
+            command: command,
+            status: status,
+            outputExcerpt: outputExcerpt,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+    }
+}
+
+struct AuditTrailDTO: Sendable, Codable, Hashable, Identifiable {
+    var id: String { identifier }
+    let identifier: String
+    let goalID: String?
+    let taskID: String?
+    let eventKind: String
+    let detail: String
+    let createdAt: Date
+
+    init(from record: AuditTrailRecord) {
+        identifier = record.identifier
+        goalID = record.goalID
+        taskID = record.taskID
+        eventKind = record.eventKind
+        detail = record.detail
+        createdAt = record.createdAt
+    }
+
+    func makeRecord() -> AuditTrailRecord {
+        AuditTrailRecord(
+            identifier: identifier,
+            goalID: goalID,
+            taskID: taskID,
+            eventKind: eventKind,
+            detail: detail,
+            createdAt: createdAt
         )
     }
 }

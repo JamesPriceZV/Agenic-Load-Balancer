@@ -308,17 +308,25 @@ Validation:
 
 Goal: turn the developer tool into a durable macOS app distribution.
 
-- Finalize entitlements for CloudKit, CloudDocuments, user-selected read/write files, background remote notifications, and developer-tool category.
-- Verify signing against the intended Developer ID/App Store path.
-- Add notarization or TestFlight/App Store packaging notes as appropriate.
-- Create privacy documentation for local shell execution, provider auth, Keychain storage, CloudKit sync, prompt/output excerpt storage, and logs.
-- Add migration tests for additive SwiftData/CloudKit schema changes.
-- Add release checklist and rollback plan.
+- Confirmed the active release lane is Developer ID / direct macOS distribution for a local developer tool. App Sandbox remains intentionally disabled until provider execution has a separate sandbox-compatible design.
+- Added `ReleaseReadiness.md` with the release lane, entitlement truth, signing/notarization references, privacy/data handling notes, migration/restore gates, and rollback plan.
+- Added `script/release_preflight.sh` to validate build settings, entitlements, release documentation, required Apple tooling, and optional Release build/archive flows with USB-backed build output.
+- Added release-readiness regression tests that lock the bundle ID, Hardened Runtime, app category, CloudKit/CloudDocuments entitlements, version settings, release checklist, and preflight script wiring.
+- Expanded snapshot archive/restore coverage so Phase 7.6 provider command profiles, autonomy goals/plans/tasks/policies, machine peers, operation logs, conflict records, validation gates, and audit trail records are included in payload counts, identifiers, replace, merge, and schema-order tests.
+- Kept secrets in Keychain-only references and documented CloudKit sync contents for project metadata, provider setup state, routing decisions, usage metrics, run outcomes, coordination events, snapshots, autonomy records, conflict records, validation gates, and audit trails.
 
 Acceptance:
 
-- Build, archive, sign, and install flows are documented and validated.
+- Build, archive, sign, and install flows are documented and guarded by a repeatable preflight.
 - Users understand what syncs to iCloud, what remains local, and what actions require approval.
+- Snapshot restore remains migration-ready for all registered SwiftData model families.
+
+Validation:
+
+- `script/release_preflight.sh` passed after checking project settings, entitlements, release documentation, and required tools.
+- Focused Sprint H tests passed with isolated USB roots: `ReleaseReadinessTests` and `SnapshotPipelineTests`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintH_20260522_141338/Results/SprintH_Focused4.xcresult`.
+- `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintH_20260522_141338/ReleasePreflight" script/release_preflight.sh --build` returned `** BUILD SUCCEEDED **` and verified the built app bundle identifier.
+- `git diff --check` produced no output before the final Sprint H closeout.
 
 ## Validation Commands
 
@@ -367,4 +375,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint G checkpoint is pushed, the next best implementation unit is Sprint H: packaging, entitlements, signing/notarization, release documentation, and migration readiness. Provider probe work should continue as live-provider maintenance, conflict resolution should continue through live multi-machine recovery drills, and expanded screenshot-diff visual regression should continue as a broader QA lane.
+After this Sprint H checkpoint is pushed, the remaining queue is mostly live-system maturity rather than missing Phase 7.3-7.6 feature wiring: provider-specific live probe maintenance, live multi-machine conflict recovery drills, signed Developer ID archive/notarization with real credentials, and expanded screenshot-diff visual regression. The next useful implementation sprint is a release-candidate drill that runs signed archive/export/notarization on the user's chosen distribution credentials and records the artifact/rollback evidence.

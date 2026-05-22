@@ -95,6 +95,8 @@ enum SnapshotPipeline {
             .map(ProviderProfileDTO.init(from:))
         let providerSetups = try context.fetch(FetchDescriptor<ProviderSetupRecord>())
             .map(ProviderSetupDTO.init(from:))
+        let providerCommandProfiles = try context.fetch(FetchDescriptor<ProviderCommandProfile>())
+            .map(ProviderCommandProfileDTO.init(from:))
         let promptThreads = try context.fetch(FetchDescriptor<PromptThreadRecord>())
             .map(PromptThreadDTO.init(from:))
         let promptMessages = try context.fetch(FetchDescriptor<PromptMessageRecord>())
@@ -113,11 +115,30 @@ enum SnapshotPipeline {
             .map(CloudSnapshotDTO.init(from:))
         let keychainReferences = try context.fetch(FetchDescriptor<KeychainReferenceRecord>())
             .map(KeychainReferenceDTO.init(from:))
+        let autonomyGoals = try context.fetch(FetchDescriptor<AutonomyGoalRecord>())
+            .map(AutonomyGoalDTO.init(from:))
+        let autonomyPlans = try context.fetch(FetchDescriptor<AutonomyPlanRecord>())
+            .map(AutonomyPlanDTO.init(from:))
+        let autonomyTasks = try context.fetch(FetchDescriptor<AutonomyTaskRecord>())
+            .map(AutonomyTaskDTO.init(from:))
+        let autonomyPolicies = try context.fetch(FetchDescriptor<AutonomyPolicyRecord>())
+            .map(AutonomyPolicyDTO.init(from:))
+        let machinePeers = try context.fetch(FetchDescriptor<MachinePeerRecord>())
+            .map(MachinePeerDTO.init(from:))
+        let autonomyOperations = try context.fetch(FetchDescriptor<AutonomyOperationRecord>())
+            .map(AutonomyOperationDTO.init(from:))
+        let conflictResolutions = try context.fetch(FetchDescriptor<ConflictResolutionRecord>())
+            .map(ConflictResolutionDTO.init(from:))
+        let validationGates = try context.fetch(FetchDescriptor<ValidationGateRecord>())
+            .map(ValidationGateDTO.init(from:))
+        let auditTrails = try context.fetch(FetchDescriptor<AuditTrailRecord>())
+            .map(AuditTrailDTO.init(from:))
 
         return PayloadBody(
             projects: projects,
             providers: providers,
             providerSetups: providerSetups,
+            providerCommandProfiles: providerCommandProfiles,
             promptThreads: promptThreads,
             promptMessages: promptMessages,
             usageEntries: usageEntries,
@@ -126,7 +147,16 @@ enum SnapshotPipeline {
             runTranscriptSegments: runTranscriptSegments,
             coordinationEvents: coordinationEvents,
             cloudSnapshots: cloudSnapshots,
-            keychainReferences: keychainReferences
+            keychainReferences: keychainReferences,
+            autonomyGoals: autonomyGoals,
+            autonomyPlans: autonomyPlans,
+            autonomyTasks: autonomyTasks,
+            autonomyPolicies: autonomyPolicies,
+            machinePeers: machinePeers,
+            autonomyOperations: autonomyOperations,
+            conflictResolutions: conflictResolutions,
+            validationGates: validationGates,
+            auditTrails: auditTrails
         )
     }
 
@@ -212,6 +242,14 @@ enum SnapshotPipeline {
                 }
             }
         }
+        func mergeProviderCommandProfiles() {
+            let existing = liveIDs[ModelKey.providerCommandProfile] ?? []
+            for dto in payload.body.providerCommandProfiles {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
         func mergePromptThreads() {
             let existing = liveIDs[ModelKey.promptThread] ?? []
             for dto in payload.body.promptThreads {
@@ -284,10 +322,83 @@ enum SnapshotPipeline {
                 }
             }
         }
+        func mergeAutonomyGoals() {
+            let existing = liveIDs[ModelKey.autonomyGoal] ?? []
+            for dto in payload.body.autonomyGoals {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeAutonomyPlans() {
+            let existing = liveIDs[ModelKey.autonomyPlan] ?? []
+            for dto in payload.body.autonomyPlans {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeAutonomyTasks() {
+            let existing = liveIDs[ModelKey.autonomyTask] ?? []
+            for dto in payload.body.autonomyTasks {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeAutonomyPolicies() {
+            let existing = liveIDs[ModelKey.autonomyPolicy] ?? []
+            for dto in payload.body.autonomyPolicies {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeMachinePeers() {
+            let existing = liveIDs[ModelKey.machinePeer] ?? []
+            for dto in payload.body.machinePeers {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeAutonomyOperations() {
+            let existing = liveIDs[ModelKey.autonomyOperation] ?? []
+            for dto in payload.body.autonomyOperations {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeConflictResolutions() {
+            let existing = liveIDs[ModelKey.conflictResolution] ?? []
+            for dto in payload.body.conflictResolutions {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeValidationGates() {
+            let existing = liveIDs[ModelKey.validationGate] ?? []
+            for dto in payload.body.validationGates {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
+        func mergeAuditTrails() {
+            let existing = liveIDs[ModelKey.auditTrail] ?? []
+            for dto in payload.body.auditTrails {
+                if existing.contains(dto.identifier) { skipped += 1 } else {
+                    context.insert(dto.makeRecord()); inserted += 1
+                }
+            }
+        }
 
         mergeProjects()
         mergeProviders()
         mergeProviderSetups()
+        mergeProviderCommandProfiles()
         mergePromptThreads()
         mergePromptMessages()
         mergeUsage()
@@ -297,6 +408,15 @@ enum SnapshotPipeline {
         mergeCoordination()
         mergeCloudSnapshots()
         mergeKeychainReferences()
+        mergeAutonomyGoals()
+        mergeAutonomyPlans()
+        mergeAutonomyTasks()
+        mergeAutonomyPolicies()
+        mergeMachinePeers()
+        mergeAutonomyOperations()
+        mergeConflictResolutions()
+        mergeValidationGates()
+        mergeAuditTrails()
 
         try context.save()
         return SnapshotMergeResult(inserted: inserted, skipped: skipped)
@@ -308,6 +428,7 @@ enum SnapshotPipeline {
         for dto in body.projects { context.insert(dto.makeRecord()) }
         for dto in body.providers { context.insert(dto.makeRecord()) }
         for dto in body.providerSetups { context.insert(dto.makeRecord()) }
+        for dto in body.providerCommandProfiles { context.insert(dto.makeRecord()) }
         for dto in body.promptThreads { context.insert(dto.makeRecord()) }
         for dto in body.promptMessages { context.insert(dto.makeRecord()) }
         for dto in body.usageEntries { context.insert(dto.makeRecord()) }
@@ -317,12 +438,22 @@ enum SnapshotPipeline {
         for dto in body.coordinationEvents { context.insert(dto.makeRecord()) }
         for dto in body.cloudSnapshots { context.insert(dto.makeRecord()) }
         for dto in body.keychainReferences { context.insert(dto.makeRecord()) }
+        for dto in body.autonomyGoals { context.insert(dto.makeRecord()) }
+        for dto in body.autonomyPlans { context.insert(dto.makeRecord()) }
+        for dto in body.autonomyTasks { context.insert(dto.makeRecord()) }
+        for dto in body.autonomyPolicies { context.insert(dto.makeRecord()) }
+        for dto in body.machinePeers { context.insert(dto.makeRecord()) }
+        for dto in body.autonomyOperations { context.insert(dto.makeRecord()) }
+        for dto in body.conflictResolutions { context.insert(dto.makeRecord()) }
+        for dto in body.validationGates { context.insert(dto.makeRecord()) }
+        for dto in body.auditTrails { context.insert(dto.makeRecord()) }
     }
 
     private static func deleteAll(in context: ModelContext) throws {
         for record in try context.fetch(FetchDescriptor<AgentProject>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<AgentProviderProfile>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<ProviderSetupRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<ProviderCommandProfile>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<PromptThreadRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<PromptMessageRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<UsageLedgerEntry>()) { context.delete(record) }
@@ -332,6 +463,15 @@ enum SnapshotPipeline {
         for record in try context.fetch(FetchDescriptor<CoordinationEventRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<CloudSnapshotRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<KeychainReferenceRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomyGoalRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomyPlanRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomyTaskRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomyPolicyRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<MachinePeerRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomyOperationRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<ConflictResolutionRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<ValidationGateRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AuditTrailRecord>()) { context.delete(record) }
         try context.save()
     }
 }
