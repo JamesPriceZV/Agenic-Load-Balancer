@@ -66,16 +66,29 @@ struct ReleaseReadinessTests {
             contentsOf: root.appendingPathComponent("script/release_preflight.sh"),
             encoding: .utf8
         )
+        let releaseCandidateScript = try String(
+            contentsOf: root.appendingPathComponent("script/release_candidate.sh"),
+            encoding: .utf8
+        )
 
         #expect(releaseDoc.contains("Developer ID"))
         #expect(releaseDoc.contains("notarytool"))
         #expect(releaseDoc.contains("stapler"))
         #expect(releaseDoc.contains("Keychain"))
         #expect(releaseDoc.contains("Rollback Plan"))
+        #expect(releaseDoc.contains("script/release_candidate.sh --all"))
 
         #expect(script.contains("ENABLE_HARDENED_RUNTIME = YES"))
         #expect(script.contains("com.apple.developer.icloud-services"))
         #expect(script.contains("--signed-build"))
         #expect(script.contains("xcodebuild"))
+
+        #expect(releaseCandidateScript.contains("Developer ID Application"))
+        #expect(releaseCandidateScript.contains("security find-identity"))
+        #expect(releaseCandidateScript.contains("xcodebuild archive"))
+        #expect(releaseCandidateScript.contains("xcrun notarytool submit"))
+        #expect(releaseCandidateScript.contains("xcrun stapler staple"))
+        #expect(releaseCandidateScript.contains("spctl -a -vv --type execute"))
+        #expect(releaseCandidateScript.contains("NOTARY_PROFILE"))
     }
 }

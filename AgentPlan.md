@@ -375,4 +375,23 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint H checkpoint is pushed, the remaining queue is mostly live-system maturity rather than missing Phase 7.3-7.6 feature wiring: provider-specific live probe maintenance, live multi-machine conflict recovery drills, signed Developer ID archive/notarization with real credentials, and expanded screenshot-diff visual regression. The next useful implementation sprint is a release-candidate drill that runs signed archive/export/notarization on the user's chosen distribution credentials and records the artifact/rollback evidence.
+### Sprint I - Release Candidate Credential Drill
+
+Goal: make signed Developer ID archive/notarization executable from the repo while keeping secrets out of SwiftData, CloudKit, and planning docs.
+
+- Added `script/release_candidate.sh` for credential-aware Developer ID release drills.
+- The script checks for a real `Developer ID Application` signing identity via `security find-identity`, requires `NOTARY_PROFILE`/`ALB_NOTARY_PROFILE` for notarization, writes export options into the USB-backed `RUN_ROOT`, and runs archive, export, ZIP package, notary submit, staple, and Gatekeeper assessment steps on demand.
+- The script supports `--verify-credentials`, `--archive`, `--export`, `--package`, `--notarize`, `--staple`, `--all`, and `--dry-run`.
+- `ReleaseReadiness.md` now documents the credential drill, notary profile setup, and the no-secret policy for Apple account material.
+- `ReleaseReadinessTests` now guards the release-candidate script contract.
+
+Validation:
+
+- `bash -n script/release_candidate.sh script/release_preflight.sh` passed.
+- `script/release_candidate.sh --help` printed the expected option/credential contract.
+- `script/release_candidate.sh --verify-credentials` correctly blocked on this Mac because only Apple Development identities are installed; no `Developer ID Application` identity was present.
+- Focused `ReleaseReadinessTests` passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintI_Release_20260522_145907/Results/ReleaseReadiness.xcresult`.
+
+### Remaining Live-Maturity Queue
+
+The remaining queue is now provider-specific live probe maintenance, live multi-machine conflict recovery drills, expanded screenshot-diff visual regression, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.

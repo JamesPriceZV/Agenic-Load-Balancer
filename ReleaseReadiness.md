@@ -29,6 +29,19 @@ RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_Release_Signed_$(date +%
   script/release_preflight.sh --build --signed-build
 ```
 
+For a real release-candidate drill, use the credential-aware script. It never stores credentials in the repo; it expects the Developer ID certificate and notarytool profile to already live in the user's Keychain:
+
+```sh
+script/release_candidate.sh --verify-credentials
+
+DEVELOPER_ID_IDENTITY="Developer ID Application: Example Team (TEAMID)" \
+NOTARY_PROFILE="agenic-notary" \
+RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_RC_$(date +%Y%m%d_%H%M%S)" \
+  script/release_candidate.sh --all
+```
+
+If the certificate is missing, install a Developer ID Application certificate in Keychain Access or Xcode Accounts. If the notary profile is missing, create it with `xcrun notarytool store-credentials` using an app-specific password or App Store Connect API key, then rerun the credential check. Do not paste Apple account passwords, API keys, or app-specific passwords into planning docs.
+
 ## Entitlement Truth
 
 - Bundle ID: `com.zincoverde.Agenic-Load-Balancer`
@@ -61,6 +74,14 @@ xcodebuild archive \
 ```
 
 Then export, notarize the distributable artifact with `xcrun notarytool submit --wait`, staple with `xcrun stapler staple`, and verify with `spctl -a -vv`.
+
+The repo-owned release-candidate script performs that sequence as:
+
+1. Signed archive with `xcodebuild archive`.
+2. Developer ID export with `xcodebuild -exportArchive`.
+3. ZIP packaging with `ditto --keepParent`.
+4. Notary submission with `xcrun notarytool submit --wait`.
+5. Staple and Gatekeeper assessment with `xcrun stapler staple` and `spctl -a -vv --type execute`.
 
 ## Privacy And Data Handling
 
