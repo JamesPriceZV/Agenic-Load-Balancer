@@ -17,8 +17,8 @@ Updated: May 21, 2026
 
 - The previously reported iCloud reality gap is resolved. The iCloud checkout was fast-forwarded from the earlier Phase 7.2-era state to the pushed Phase 7.3-7.6 implementation history on `origin/main`.
 - The implementation commits now present in the active iCloud checkout include the command bar, intelligent AgentNotes preflight, Foundation Models routing tie-breaker, autonomous project manager foundation, autonomy persistence/execution wiring, dispatch hardening, UI and project settings repair, cancelled coordination cleanup, provider auth/settings/workspace task wiring, autonomy readiness polish, and settings tool alignment.
-- The remaining work from the user's expanded plan is not a missing Phase 7.3-7.6 code item. It is checkpoint hygiene: update stale root references, preserve local project metadata/entitlement changes, validate from the iCloud root, commit, and push.
-- Future work remains, but it should be treated as a new scoped roadmap rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint B from this roadmap is now implemented as an in-app Foundation Models diagnostics route. Settings > Agents can check host availability and run live command-bar metrics, run-summary, and routing tie-break probes while keeping deterministic fallback behavior intact.
+- Future work remains, but it should be treated as the next scoped roadmap work, starting with Sprint C token-budget and continuation hardening rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -46,10 +46,11 @@ Updated: May 21, 2026
 - Phase 7.6 autonomous project management foundation with policy levels, safety checks, deterministic goal planning, persisted plans/tasks, validation commands, audit trail, machine sync health, and conflict-resolution primitives.
 - Autonomy readiness control room with safety contract checklist, readiness score, persisted queue, validation metrics, and peer sync posture.
 - Safety audit tests proving unavailable Foundation Models paths degrade to no-op/fallback behavior and mutating command-bar actions return draft/approval-required results.
+- Foundation Models diagnostics runner and Settings > Agents diagnostics UI that probe availability, command-bar metrics, post-run summaries, and close-score routing tie-breaks without blocking deterministic app behavior.
 
 ## What Is Partial Or Needs Live-System Validation
 
-- Live Foundation Models happy path still needs periodic validation on a macOS 26.x host with Apple Intelligence and Foundation Models actually available. Tests cover scripted/fallback paths, not every live model behavior.
+- Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
 - CloudKit sync is wired and status is observable, but "perfect cross-machine sync" needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
 - Context compaction is implemented for summarizer inputs and run telemetry, but a full long-running autonomous continuation loop still needs stronger chunking, resumable transcript storage, and provider-specific context-budget strategies.
@@ -142,19 +143,27 @@ Status: completed in this checkpoint.
 
 ### Sprint B - Live Foundation Models Verification
 
+Status: implemented in this checkpoint. Live success still depends on the host reporting `SystemLanguageModel.default.availability` as available.
+
 Goal: prove the live on-device paths behave in the real host environment, not only through scripted tests.
 
-- Add a small manual validation script or app diagnostic route that checks `SystemLanguageModel.default.availability`.
-- Run a command-bar metrics prompt through a live `LanguageModelSession(tools:)`.
-- Run a small post-run summary through live `respond(to:generating:)`.
-- Run a close-score routing tie-break against a controlled provider set.
-- Capture availability, refusal, unsupported-locale, disabled-Apple-Intelligence, and successful states.
-- Record results in `AgentNotes.md` and `PLAN.md`.
+- Added a Settings > Agents Foundation Models Diagnostics section that checks `SystemLanguageModel.default.availability`.
+- Added a diagnostics runner that can execute command-bar metrics through the live command-bar Foundation Models path.
+- Added a run-summary probe through the live `RunSummarizing` factory.
+- Added a close-score routing tie-break probe through the live `RoutingTieBreaking` factory.
+- Captured availability, skipped, failed, unsupported-locale/language, refusal/safety, context-window, and successful states as explicit probe results.
+- Recorded implementation and validation results in `AgentNotes.md` and `PLAN.md`.
 
 Acceptance:
 
 - Live paths succeed or degrade gracefully with explicit user-readable status.
 - No live Foundation Models failure blocks deterministic routing, run dispatch, AgentNotes reconciliation, or dashboard behavior.
+
+Validation:
+
+- Swift Testing reported `Test run with 141 tests in 21 suites passed after 3.001 seconds` during the full-scheme run, including the new Foundation Models diagnostics suite, before the UI-test wrapper later hung and was terminated.
+- Clean build-only validation with isolated USB-derived roots returned `** BUILD SUCCEEDED **` using `/Volumes/USB256/Xcode_Projects_Storage/AgenicLoadBalancer/Build-20260521232102`.
+- Follow-up live observation remains: collect real available-host, refusal/safety, unsupported-locale, disabled-Apple-Intelligence, and success snapshots from machines as those states occur.
 
 ### Sprint C - Token Budget And Continuation Hardening
 
@@ -294,4 +303,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this canonical-root checkpoint is validated and pushed, the next best implementation unit is Sprint B: live Foundation Models verification on the actual macOS host. That is the narrowest high-value step toward making the autonomy feel inevitable while keeping the existing approval, policy, and fallback guarantees intact.
+After this Sprint B checkpoint is validated and pushed, the next best implementation unit is Sprint C: token budget and continuation hardening. That is the narrowest high-value step toward making long autonomous runs efficient, resumable, and honest before provider context windows are exhausted.

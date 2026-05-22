@@ -244,6 +244,9 @@ struct SettingsView: View {
         status: "loading",
         detail: "Checking CloudKit-backed SwiftData status."
     )
+    @State private var foundationModelsAvailability = SystemLanguageModelAvailabilityChecker().currentAvailability()
+    @State private var foundationModelsReport: FoundationModelsDiagnosticReport?
+    @State private var foundationModelsDiagnosticsRunning = false
 
     init(initialTab: AgenicSettingsTab = .generation) {
         _selectedTab = State(initialValue: initialTab)
@@ -275,6 +278,7 @@ struct SettingsView: View {
         }
         .task {
             await refreshCloudStatus()
+            refreshFoundationModelsAvailability()
         }
     }
 
@@ -416,6 +420,7 @@ struct SettingsView: View {
                 settingsRow("Available", "\(providers.filter { $0.installedState == ProviderAvailabilityState.available.rawValue }.count)")
                 settingsRow("Credential references", "\(keychainReferences.count)")
             }
+            foundationModelsDiagnosticsSection
         case .server:
             settingsSection("Execution") {
                 settingsRow("Runner", "Local process + Foundation Models composite")
@@ -458,6 +463,35 @@ struct SettingsView: View {
                 settingsRow("CloudKit container", AgenicDataModel.cloudKitContainerIdentifier)
                 settingsRow("Data policy", "Workspace secrets stay out of SwiftData and CloudKit")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var foundationModelsDiagnosticsSection: some View {
+        settingsSection("Foundation Models Diagnostics") {
+            settingsRow("Availability", foundationModelsAvailability.message)
+            if let foundationModelsReport {
+                settingsRow("Last run", foundationModelsReport.finishedAt.formatted(date: .abbreviated, time: .standard))
+                settingsRow("Status", foundationModelsReport.statusSummary)
+                ForEach(foundationModelsReport.probes) { probe in
+                    foundationModelsProbeRow(probe)
+                }
+            }
+            Button {
+                Task { await runFoundationModelsDiagnostics() }
+            } label: {
+                HStack(spacing: 8) {
+                    if foundationModelsDiagnosticsRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "checkmark.seal")
+                    }
+                    Text(foundationModelsDiagnosticsRunning ? "Running diagnostics" : "Run diagnostics")
+                }
+            }
+            .disabled(foundationModelsDiagnosticsRunning)
+            .padding(.top, 8)
         }
     }
 
@@ -523,6 +557,33 @@ struct SettingsView: View {
         }
     }
 
+    private func foundationModelsProbeRow(_ probe: FoundationModelsDiagnosticProbeResult) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(probe.kind.title)
+            Spacer(minLength: 18)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(probe.status.label)
+                    .foregroundStyle(foundationModelsStatusColor(probe.status))
+                    .font(.body.weight(.semibold))
+                Text(probe.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                if probe.durationSeconds > 0 {
+                    Text(probe.durationSeconds, format: .number.precision(.fractionLength(2)))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.45)
+        }
+    }
+
     private var appVersion: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
     }
@@ -531,6 +592,30 @@ struct SettingsView: View {
         let status = await AppServices.cloudSync.currentStatus()
         await MainActor.run {
             cloudStatus = status
+        }
+    }
+
+    private func refreshFoundationModelsAvailability() {
+        foundationModelsAvailability = SystemLanguageModelAvailabilityChecker().currentAvailability()
+    }
+
+    private func runFoundationModelsDiagnostics() async {
+        await MainActor.run {
+            foundationModelsDiagnosticsRunning = true
+        }
+        let report = await FoundationModelsDiagnosticsRunner().run()
+        await MainActor.run {
+            foundationModelsReport = report
+            foundationModelsAvailability = report.availability
+            foundationModelsDiagnosticsRunning = false
+        }
+    }
+
+    private func foundationModelsStatusColor(_ status: FoundationModelsDiagnosticProbeStatus) -> Color {
+        switch status {
+        case .succeeded: .green
+        case .skipped: .orange
+        case .failed: .red
         }
     }
 }

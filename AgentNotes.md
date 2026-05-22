@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint B Foundation Models diagnostics route
+  Assignee: OpenAI Codex
+  Detail: Implemented the live Foundation Models verification route from `AgentPlan.md` Sprint B. Added a diagnostics runner that checks `SystemLanguageModel.default.availability`, skips live probes with explicit reasons when unavailable, and exercises command-bar metrics, guided run-summary, and close-score routing tie-break paths when the host can run Foundation Models. Wired the diagnostics into Settings > Agents so the user can observe availability, successful probes, skipped probes, unsupported locale/language, refusal/safety, context-window, and generic failure states without blocking deterministic routing or dispatch behavior.
+  Run: local Sprint B implementation and validation turn on May 21, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: Swift Testing reported `Test run with 141 tests in 21 suites passed after 3.001 seconds` during the full-scheme run with isolated USB roots, including the new Foundation Models diagnostics suite, before the UI-test wrapper later hung and was terminated. Clean build-only validation with isolated USB roots returned `** BUILD SUCCEEDED **` using `/Volumes/USB256/Xcode_Projects_Storage/AgenicLoadBalancer/Build-20260521232102`.
+
 - [checkpointed] Canonical iCloud root and expanded implementation plan
   Assignee: OpenAI Codex
   Detail: Confirmed the active project root is the iCloud checkout at `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`, fast-forwarded it to the pushed Phase 7.3-7.6 implementation history, and replaced the stale OneDrive-oriented AgentPlan checklist with a current comprehensive implementation plan. Updated handoff truth so future agents use the iCloud checkout, keep derived/temp validation data on `/Volumes/USB256/Xcode_Projects_Storage/`, and treat OneDrive paths as read-only migration/archive material only. Preserved local project metadata and entitlements that add the developer-tool app category, include all app icon assets, and strengthen iCloud/CloudDocuments/ubiquity settings.
