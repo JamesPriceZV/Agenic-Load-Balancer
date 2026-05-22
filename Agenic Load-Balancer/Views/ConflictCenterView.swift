@@ -61,11 +61,21 @@ struct ConflictCenterView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Conflict Center")
-                .font(.largeTitle.weight(.semibold))
-            Text(statusText)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Conflict Center")
+                    .font(.largeTitle.weight(.semibold))
+                Text(statusText)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 16)
+            Button {
+                runRecoveryDrill()
+            } label: {
+                Label("Run Drill", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("Conflicts.RunDrillButton")
         }
     }
 
@@ -112,6 +122,16 @@ struct ConflictCenterView: View {
             statusText = "\(action.label) recorded for \(preview.entityType) \(preview.entityID)."
         } catch {
             statusText = "Resolution failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func runRecoveryDrill() {
+        do {
+            let report = try ConflictRecoveryDrill.seedAndRun(in: modelContext)
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            statusText = report.summary
+        } catch {
+            statusText = "Recovery drill failed: \(error.localizedDescription)"
         }
     }
 

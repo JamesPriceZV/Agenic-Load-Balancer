@@ -24,7 +24,8 @@ Updated: May 22, 2026
 - Sprint F from this roadmap is implemented as trusted autopilot lane templates and safety review. Autonomy now has explicit read-only review, plan-only, test-only, docs-only edits, small-file edits, dependency-update, and commit/push lanes with root scopes, protected paths, command allowlists, network posture, budget caps, validation commands, rollback-evidence checks, and a visible "why this is safe" review before task preparation.
 - Sprint G from this roadmap is implemented as the first automated UI flow and launch-verification slice. UI tests now cover the minimum-window Command Bar, Prompt Router, Settings Tools controls, Projects controls, project settings, workspace/task navigation, Restore, Autonomy, and light/dark launch flows using deterministic `--uitesting` fixtures and stable accessibility identifiers.
 - Sprint J from the live-maturity queue is implemented as provider probe maintenance plus XcodeBuildMCP source support. The provider catalog now includes XcodeBuildMCP as a local tool source, auth recipes treat it as no-auth/MCP-configured, safe probe reporting covers installed CLI/provider state without launching login flows, and probe classifiers separate API-key, account-login, custom-profile, quota, rate, subscription, and context signals.
-- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint J rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint K from the live-maturity queue is implemented as the first conflict-recovery drill. The Conflict Center can seed a local synthetic two-machine recovery scenario, merge commutative audit history, plan restore-into-new-copy for risky task divergence, persist the drill evidence into SwiftData, and refresh CloudKit save status without mutating target entities.
+- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint K rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -61,19 +62,19 @@ Updated: May 22, 2026
 ## What Is Partial Or Needs Live-System Validation
 
 - Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
-- CloudKit sync is wired, status is observable, and Sprint E exposes a conflict inspection/resolution surface. "Perfect cross-machine sync" still needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
+- CloudKit sync is wired, status is observable, Sprint E exposes a conflict inspection/resolution surface, and Sprint K adds a local recovery drill that exercises merge plus restore-into-new-copy decisions. "Perfect cross-machine sync" still needs repeated physical multi-device, multi-account, network-failure, and CloudKit conflict-injection validation before it can be described as production-proven.
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes. Sprint J adds a safe live probe report and XcodeBuildMCP source support, but each provider's login, subscription state, quota endpoint, and CLI behavior can still change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
 - UI validation now has launch coverage, minimum-window flow coverage, and a first deterministic workspace/task flow. Screenshot-diff baselines, maximized/full-screen matrices, provider setup edge cases, and run-sheet failure-state permutations still need broader automated coverage.
-- Conflict resolution now has deterministic primitives, audit records, and a user-facing dry-run Conflict Center. The remaining "perfect conflict resolution" promise needs live cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows.
+- Conflict resolution now has deterministic primitives, audit records, a user-facing dry-run Conflict Center, and a local recovery drill that proves safe audit merge and risky divergence restore planning. The remaining "perfect conflict resolution" promise needs physical cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows against real project data.
 
 ## Deferred Future Queue
 
 - Live Foundation Models smoke suite: run command bar, run summary, AgentNotes intelligence, and tie-breaker against real on-device Foundation Models and record observed availability states.
 - Provider-specific continuation loops: add source-file summarization, provider-specific context windows, bounded resume execution policies, and continuation approval flows that can safely chain long runs without losing auditability.
 - Provider-specific live probe maintenance: keep the Sprint J safe report current as CLIs change, then expand normalized probe coverage with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
-- Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
+- Cross-machine sync validation: run two or more physical machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes beyond the Sprint K local drill.
 - Conflict resolution expansion: add entity-specific merge policies, execute real restore-into-copy workflows, and run multi-device recovery drills with intentionally divergent CloudKit records.
 - Trusted-autopilot expansion: build on the new Sprint F lane templates with richer live evidence collection, automatic snapshot creation, bounded multi-step execution, and per-lane recovery drills.
 - Autonomous loop scheduler: persist goals, break them into bounded sprints, run validation gates, checkpoint results, ask for approvals at risk boundaries, and stop on uncertainty.
@@ -411,6 +412,20 @@ Validation:
 - Safe provider probe report completed with `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_ProviderProbe_20260522_161704" PROBE_TIMEOUT_SECONDS=4 script/provider_probe_report.sh`; output recorded Codex, Claude, GitHub CLI, Gemini, and XcodeBuildMCP/xcodebuild availability while redacting token text.
 - Focused ProviderWizard/catalog tests passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintJ_Provider_20260522_161138/Results/ProviderProbe.xcresult`.
 
+### Sprint K - Multi-Machine Conflict Recovery Drill
+
+Goal: make cross-machine recovery behavior rehearsable inside the app before live two-machine CloudKit drills.
+
+- Added `ConflictRecoveryDrill`, a deterministic local drill that creates synthetic local/remote machine peers, a rollback snapshot anchor, a safe commutative `appendAudit` conflict, and a risky concurrent `setStatus` task divergence.
+- Added a Conflict Center `Run Drill` action that seeds the scenario into SwiftData, runs the same preview/resolution machinery users inspect manually, records local save activity, and reports whether the recovery rehearsal passed.
+- The drill applies `.merge` to safe audit-history conflict records and `.restoreIntoNewCopy` to risky operation-log divergence, creating a backing synthetic conflict record when needed.
+- The drill persists peer, operation, conflict, and snapshot evidence but does not mutate target project/task entities, so it is safe to run as a rehearsal and as regression coverage.
+- Added focused tests proving the drill records a merge, plans restore into new copy, preserves stale-peer warnings, anchors the snapshot, and persists the synthetic records in an in-memory SwiftData container.
+
+Validation:
+
+- Focused conflict drill tests passed with `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintK_Conflict_20260522_164834" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test ... -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests"`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintK_Conflict_20260522_164834/Results/ConflictDrill.xcresult`.
+
 ### Remaining Live-Maturity Queue
 
-The remaining queue is now live multi-machine conflict recovery drills, expanded screenshot-diff visual regression, ongoing provider probe upkeep as CLIs drift, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.
+The remaining queue is now physical multi-machine conflict recovery drills, expanded screenshot-diff visual regression, ongoing provider probe upkeep as CLIs drift, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.

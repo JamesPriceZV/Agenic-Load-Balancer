@@ -6,11 +6,20 @@
 //
 
 import Foundation
+import SwiftData
 import Testing
 @testable import Agenic_Load_Balancer
 
 @Suite("Phase 7.6 conflict resolution")
 struct ConflictResolutionEngineTests {
+    private static func makeContainer() throws -> ModelContainer {
+        let configuration = ModelConfiguration(
+            schema: AgenicDataModel.schema,
+            isStoredInMemoryOnly: true
+        )
+        return try ModelContainer(for: AgenicDataModel.schema, configurations: [configuration])
+    }
+
     @Test func concurrentDifferentPayloadRequiresReview() {
         let local = OperationEnvelope(
             identifier: "l",
@@ -299,5 +308,43 @@ struct ConflictResolutionEngineTests {
         )
 
         #expect(preview.warnings.contains("Studio Mac: Peer needs snapshot verification before autonomous work."))
+    }
+
+    @Test func conflictRecoveryDrillMergesSafeHistoryAndPlansRestoreCopy() throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let scenario = ConflictRecoveryDrill.makeScenario(runID: "drill-unit", now: now)
+
+        let report = try ConflictRecoveryDrill.run(scenario: scenario, now: now)
+
+        #expect(report.passed)
+        #expect(report.appliedActions.contains(.merge))
+        #expect(report.appliedActions.contains(.restoreIntoNewCopy))
+        #expect(report.resolvedRecordIDs.contains("drill-unit-audit-conflict"))
+        #expect(!report.restorePlannedRecordIDs.isEmpty)
+        #expect(report.warnings.contains("Studio Mac: Peer needs snapshot verification before autonomous work."))
+        #expect(report.createdSnapshotIDs == ["drill-unit-snapshot"])
+    }
+
+    @MainActor
+    @Test func conflictRecoveryDrillPersistsSyntheticRecordsAndSnapshotAnchors() throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 20_000)
+
+        let report = try ConflictRecoveryDrill.seedAndRun(in: context, now: now)
+
+        let conflicts = try context.fetch(FetchDescriptor<ConflictResolutionRecord>())
+        let operations = try context.fetch(FetchDescriptor<AutonomyOperationRecord>())
+        let peers = try context.fetch(FetchDescriptor<MachinePeerRecord>())
+        let snapshots = try context.fetch(FetchDescriptor<CloudSnapshotRecord>())
+
+        #expect(report.passed)
+        #expect(conflicts.count == 2)
+        #expect(conflicts.contains { $0.status == "resolved" && $0.resolutionJSON.contains("merge") })
+        #expect(conflicts.contains { $0.status == "restorePlanned" && $0.resolutionJSON.contains("restoreIntoNewCopy") })
+        #expect(operations.count == 2)
+        #expect(peers.count == 2)
+        #expect(snapshots.count == 1)
+        #expect(conflicts.allSatisfy { $0.resolutionJSON.contains(report.runID) || $0.localPayloadJSON.contains(report.runID) })
     }
 }
