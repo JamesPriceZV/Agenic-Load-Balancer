@@ -25,6 +25,9 @@ struct ContentView: View {
     @Query private var snapshots: [CloudSnapshotRecord]
     @Query private var autonomyGoals: [AutonomyGoalRecord]
     @Query private var autonomyTasks: [AutonomyTaskRecord]
+    @Query(sort: \AutonomyOperationRecord.createdAt, order: .reverse) private var autonomyOperations: [AutonomyOperationRecord]
+    @Query(sort: \ConflictResolutionRecord.createdAt, order: .reverse) private var conflicts: [ConflictResolutionRecord]
+    @Query(sort: \MachinePeerRecord.updatedAt, order: .reverse) private var machinePeers: [MachinePeerRecord]
 
     @State private var selectedSection: ConsoleSection? = .dashboard
     @State private var showingCommandBar = false
@@ -53,6 +56,7 @@ struct ContentView: View {
                 Section("Configure") {
                     sidebarItem(.providers, "Providers", "externaldrive.connected.to.line.below")
                     workspaceSidebar
+                    sidebarItem(.conflictCenter, "Conflicts", "exclamationmark.triangle")
                     sidebarItem(.restoreCenter, "Restore", "icloud.and.arrow.down")
                     sidebarItem(.agentNotes, "AgentNotes", "checklist")
                 }
@@ -164,6 +168,13 @@ struct ContentView: View {
             } else {
                 ProjectsView(projects: projects, coordinationEvents: coordinationEvents)
             }
+        case .conflictCenter:
+            ConflictCenterView(
+                conflicts: conflicts,
+                operations: autonomyOperations,
+                peers: machinePeers,
+                snapshots: snapshots
+            )
         case .history:
             HistoryView(decisions: decisions, outcomes: outcomes, usageEntries: usageEntries)
         case .restoreCenter:
@@ -385,6 +396,7 @@ private enum ConsoleSection: Identifiable, Hashable {
     case projects
     case workspace(String)
     case workspaceTask(String)
+    case conflictCenter
     case history
     case restoreCenter
     case agentNotes
@@ -398,6 +410,7 @@ private enum ConsoleSection: Identifiable, Hashable {
         case .projects: "projects"
         case .workspace(let projectID): "workspace:\(projectID)"
         case .workspaceTask(let taskID): "workspaceTask:\(taskID)"
+        case .conflictCenter: "conflictCenter"
         case .history: "history"
         case .restoreCenter: "restoreCenter"
         case .agentNotes: "agentNotes"

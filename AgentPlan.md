@@ -20,7 +20,8 @@ Updated: May 22, 2026
 - Sprint B from this roadmap is implemented as an in-app Foundation Models diagnostics route. Settings > Agents can check host availability and run live command-bar metrics, run-summary, and routing tie-break probes while keeping deterministic fallback behavior intact.
 - Sprint C from this roadmap is implemented as provider-neutral token budget and continuation hardening. Prompt Router approvals now show context pressure, oversized AgentNotes preflight context is compacted before dispatch, run outcomes retain context-budget and continuation metadata, long stdout/stderr transcripts are segmented for durable storage/snapshots, and context-window failures prepare a safe follow-up prompt instead of only reporting the failure.
 - Sprint D from this roadmap is implemented as provider probe normalization and routing telemetry hardening. Provider probes now report auth and limit state with normalized labels, routing and command-bar actions consume recent reliability snapshots, and the dashboard/router continue to filter to configured providers by default.
-- Future work remains, but it should be treated as scoped roadmap work after Sprint D rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint E from this roadmap is implemented as the first Cross-Machine Conflict Center slice. The app now has a dedicated Conflicts navigation surface that previews persisted conflict records and synthetic operation-log divergence, shows local/remote envelopes, peer/snapshot warnings, dry-run resolution choices, rollback anchors, and records explicit decisions into SwiftData without mutating target entities.
+- Future work remains, but it should be treated as scoped roadmap work after Sprint E rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -41,6 +42,7 @@ Updated: May 22, 2026
 - Provider-neutral token budgeting, preflight AgentNotes compaction, durable transcript segment storage, snapshot round-trip support for transcript segments, and continuation prompts for context-window failures.
 - AgentNotes coordination with NSFileCoordinator-backed reads/writes, preflight prompt injection, active-conflict filtering, reconciliation, stale dispatch cleanup, and regenerated ledger projection.
 - First-class `cancelled` coordination status so harmless cancelled runs no longer appear as active blockers.
+- Cross-Machine Conflict Center with local/remote operation-envelope previews, affected field counts, audit link extraction, stale peer warnings, snapshot rollback warnings, keep-local/accept-remote/merge/restore dry-run actions, and persisted resolution records.
 - Phase 7.1 Foundation Models in-process runner adapter and availability-gated streaming path.
 - Phase 7.2 structured run summary support using framework-independent values plus live Foundation Models implementation behind availability gates.
 - Phase 7.3 natural-language tool-calling command bar with rank, dispatch draft, provider probe, snapshot draft, AgentNotes reconcile, and dashboard metrics actions.
@@ -54,12 +56,12 @@ Updated: May 22, 2026
 ## What Is Partial Or Needs Live-System Validation
 
 - Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
-- CloudKit sync is wired and status is observable, but "perfect cross-machine sync" needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
+- CloudKit sync is wired, status is observable, and Sprint E exposes a conflict inspection/resolution surface. "Perfect cross-machine sync" still needs repeated multi-device, multi-account, network-failure, and conflict-injection validation before it can be described as production-proven.
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes, but each provider's live login, subscription state, quota endpoint, and CLI behavior can change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy is deliberately approval-gated and policy-aware. It is not yet a fully trusted autopilot that can safely perform arbitrary repo mutation, validation, commit, push, and recovery without user approval.
 - UI validation has launch and full-scheme coverage, but screenshot-level visual regression, resized-window flows, settings subpanes, provider setup edge cases, and run-sheet failure states need broader automated coverage.
-- Conflict resolution has deterministic primitives and audit records, but the user-facing "perfect conflict resolution" promise still needs richer conflict visualization, dry-run previews, reversible operation envelopes, and recovery drills.
+- Conflict resolution now has deterministic primitives, audit records, and a user-facing dry-run Conflict Center. The remaining "perfect conflict resolution" promise needs live cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows.
 
 ## Deferred Future Queue
 
@@ -67,7 +69,7 @@ Updated: May 22, 2026
 - Provider-specific continuation loops: add source-file summarization, provider-specific context windows, bounded resume execution policies, and continuation approval flows that can safely chain long runs without losing auditability.
 - Provider-specific live probe maintenance: expand the normalized Sprint D probe layer with per-provider quota endpoints, subscription freshness checks, version drift detection, and recurring live auth/login validation.
 - Cross-machine sync validation: run two or more machines against the same CloudKit container, verify workspace/task history propagation, inject concurrent edits, and document exact conflict outcomes.
-- Conflict center UI: expose operation envelopes, divergent records, proposed merges, rollback options, and "restore into new local copy" flows in a dedicated inspector.
+- Conflict resolution expansion: add entity-specific merge policies, execute real restore-into-copy workflows, and run multi-device recovery drills with intentionally divergent CloudKit records.
 - Trusted-autopilot lanes: define a staged path from observe-only to plan-only to proposed-action to approved-execution to tightly bounded trusted automation.
 - Autonomous loop scheduler: persist goals, break them into bounded sprints, run validation gates, checkpoint results, ask for approvals at risk boundaries, and stop on uncertainty.
 - Provider setup UX: add status badges for account login freshness, API-key reference health, missing binary remediation, and per-provider docs snapshots.
@@ -129,7 +131,7 @@ Updated: May 22, 2026
 - `AutonomousProjectManager` converts goals into deterministic inspect/plan/execute/validate/checkpoint task plans.
 - `AutonomyPersistence` stores goal, plan, task, policy, operation, validation, and audit records.
 - `AutonomyReadinessBuilder` scores readiness before autonomous work is prepared.
-- `ConflictResolutionEngine` and `MachineSyncCoordinator` provide deterministic conflict and peer-health primitives.
+- `ConflictResolutionEngine`, `ConflictResolutionPreviewBuilder`, `ConflictCenterView`, and `MachineSyncCoordinator` provide deterministic conflict previews, decision records, and peer-health warnings.
 
 ## Implementation Roadmap
 
@@ -220,18 +222,31 @@ Validation:
 
 ### Sprint E - Cross-Machine Conflict Center
 
+Status: implemented in this checkpoint as the first inspectable/reversible conflict center slice. Live multi-machine recovery drills remain future validation work.
+
 Goal: make CloudKit sync and multi-machine coordination inspectable and reversible.
 
-- Add an operation-envelope inspector for changes produced by autonomous tasks, provider runs, settings edits, snapshots, and AgentNotes reconciliation.
-- Show local/remote record versions, source machine, timestamps, affected entity counts, and proposed resolution.
-- Add conflict dry-run previews with "keep local", "accept remote", "merge", "restore snapshot", and "restore into new local copy" options.
-- Add audit trail links from conflicts to source run/task/plan.
-- Add multi-store tests that simulate divergent records and stale machine peers.
+- Added an operation-envelope inspector for persisted `ConflictResolutionRecord` rows and synthetic divergent `AutonomyOperationRecord` pairs.
+- Shows local/remote machine IDs, operation kinds, Lamport clocks, timestamps, affected entity/field counts, source run/task/plan links, and proposed deterministic outcomes.
+- Added conflict dry-run actions for keep local, accept remote, merge, restore snapshot, and restore into new copy.
+- Persisted user decisions as `ConflictResolutionDecision` JSON on `ConflictResolutionRecord`; target entities remain untouched by this first slice.
+- Synthetic operation-log conflicts now create a backing conflict record before the selected decision is saved.
+- Added stale peer warnings through `MachineSyncCoordinator` and snapshot rollback warnings when no rollback anchor exists.
+- Wired the dedicated Conflicts item into the Configure sidebar.
+- Added focused tests for record preview decoding, synthetic divergence previewing, synthetic conflict record creation, decision persistence, and stale peer warning display.
 
 Acceptance:
 
 - Users can understand and resolve conflicts without guessing which machine changed what.
 - Every destructive conflict action has a preview and rollback path.
+
+Validation:
+
+- `git diff --check` produced no output.
+- App build passed with USB-derived data under `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintE_20260522_083200`, returning `** BUILD SUCCEEDED **`.
+- Focused conflict tests passed with `xcodebuild ... -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests"`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintE_20260522_083200/Logs/Test/Test-Agenic Load-Balancer-2026.05.22_08-56-05--0400.xcresult`.
+- Automated UI launch test passed after pinning the destination to `platform=macOS,arch=arm64`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintE_20260522_083200/Logs/Test/Test-Agenic Load-Balancer-2026.05.22_08-57-43--0400.xcresult`.
+- Direct launch smoke check kept the freshly built app alive under `--uitesting` for 8 seconds.
 
 ### Sprint F - Trusted Autopilot Lanes
 
@@ -325,4 +340,4 @@ git status --short --branch
 
 ## Next Recommended Implementation Unit
 
-After this Sprint D checkpoint is validated and pushed, the next best implementation unit is Sprint E: cross-machine conflict center. Provider probe work should continue as live-provider maintenance, but the core Sprint D routing telemetry layer is now implemented.
+After this Sprint E checkpoint is validated and pushed, the next best implementation unit is Sprint F: trusted autopilot lanes. Provider probe work should continue as live-provider maintenance, and conflict resolution should continue through live multi-machine recovery drills, but the first inspectable Conflict Center slice is now implemented.
