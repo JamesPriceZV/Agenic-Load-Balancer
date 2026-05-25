@@ -13,6 +13,7 @@ RUN_PROVIDER=0
 RUN_FOUNDATION=0
 RUN_RELEASE=0
 RUN_CONFLICT=0
+RUN_TWO_MAC_CONFLICT=0
 RUN_AUTONOMY=0
 RUN_VISUAL=0
 
@@ -31,6 +32,7 @@ Options:
   --foundation-models   Run the live Foundation Models host check.
   --release             Run Developer ID/notary credential doctor.
   --cloudkit-conflict   Create a CloudKit conflict-drill manifest.
+  --two-mac-cloudkit    Coordinate the physical two-Mac CloudKit drill.
   --autonomy            Run bounded autonomy continuation drill.
   --visual              Run screenshot-diff visual regression.
 USAGE
@@ -51,12 +53,14 @@ while [[ $# -gt 0 ]]; do
       RUN_FOUNDATION=1
       RUN_RELEASE=1
       RUN_CONFLICT=1
+      RUN_TWO_MAC_CONFLICT=1
       RUN_AUTONOMY=1
       ;;
     --provider-probe) RUN_PROVIDER=1 ;;
     --foundation-models) RUN_FOUNDATION=1 ;;
     --release) RUN_RELEASE=1 ;;
     --cloudkit-conflict) RUN_CONFLICT=1 ;;
+    --two-mac-cloudkit) RUN_TWO_MAC_CONFLICT=1 ;;
     --autonomy) RUN_AUTONOMY=1 ;;
     --visual) RUN_VISUAL=1 ;;
     --help|-h)
@@ -120,6 +124,10 @@ fi
 if [[ "$RUN_CONFLICT" -eq 1 ]]; then
   run_and_record "CloudKit Conflict Drill Manifest" cloudkit-conflict \
     env RUN_ROOT="$RUN_ROOT/cloudkit-conflict" "$ROOT_DIR/script/cloudkit_conflict_drill.sh" --role local
+fi
+if [[ "$RUN_TWO_MAC_CONFLICT" -eq 1 ]]; then
+  run_and_record "Two-Mac CloudKit Conflict Drill" two-mac-cloudkit \
+    env RUN_ROOT="$RUN_ROOT/two-mac-cloudkit" "$ROOT_DIR/script/two_mac_cloudkit_drill.sh" --peer-host "${PEER_HOST:-Solaris971.local}"
 fi
 if [[ "$RUN_AUTONOMY" -eq 1 ]]; then
   run_and_record "Bounded Autonomy Continuation Drill" autonomy-continuation \

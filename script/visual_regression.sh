@@ -22,10 +22,10 @@ usage() {
   cat <<'USAGE' >&2
 usage: script/visual_regression.sh
 
-Runs the Sprint L visual-regression UI snapshot matrix and writes kept
-screenshot attachments plus JSON fingerprint attachments into the xcresult.
-Standalone PNG/JSON files under RUN_ROOT are best effort because macOS UI-test
-sandboxes can deny arbitrary output-directory writes.
+Runs the visual-regression UI snapshot matrices and writes kept screenshot
+attachments plus JSON fingerprint attachments into the xcresult. Standalone
+PNG/JSON files under RUN_ROOT are best effort because macOS UI-test sandboxes
+can deny arbitrary output-directory writes.
 
 Environment:
   RUN_ROOT                    Output root. Defaults under /Volumes/USB256/Xcode_Projects_Storage.
@@ -59,7 +59,8 @@ xcodebuild test \
   OBJROOT="$RUN_ROOT/Build/Intermediates.noindex" \
   SYMROOT="$RUN_ROOT/Build/Products" \
   SHARED_PRECOMPS_DIR="$RUN_ROOT/Build/PrecompiledHeaders" \
-  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintLVisualRegressionSnapshotMatrix"
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintLVisualRegressionSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintNExpandedVisualRegressionSnapshotMatrix"
 
 if [[ ! -n "$(find "$VISUAL_DIR" -maxdepth 1 -type f -print -quit 2>/dev/null)" && -d "$FALLBACK_VISUAL_DIR" ]]; then
   cp -R "$FALLBACK_VISUAL_DIR/." "$VISUAL_DIR/"

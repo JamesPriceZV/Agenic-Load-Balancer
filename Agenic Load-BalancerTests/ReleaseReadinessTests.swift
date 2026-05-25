@@ -85,7 +85,8 @@ struct ReleaseReadinessTests {
 
         #expect(releaseCandidateScript.contains("Developer ID Application"))
         #expect(releaseCandidateScript.contains("security find-identity"))
-        #expect(releaseCandidateScript.contains("xcodebuild archive"))
+        #expect(releaseCandidateScript.contains("archive_app()"))
+        #expect(releaseCandidateScript.contains("xcodebuild"))
         #expect(releaseCandidateScript.contains("xcrun notarytool submit"))
         #expect(releaseCandidateScript.contains("xcrun stapler staple"))
         #expect(releaseCandidateScript.contains("spctl -a -vv --type execute"))
@@ -111,8 +112,16 @@ struct ReleaseReadinessTests {
             contentsOf: scriptRoot.appendingPathComponent("cloudkit_conflict_drill.sh"),
             encoding: .utf8
         )
+        let twoMacCloudKitDrill = try String(
+            contentsOf: scriptRoot.appendingPathComponent("two_mac_cloudkit_drill.sh"),
+            encoding: .utf8
+        )
         let autonomyDrill = try String(
             contentsOf: scriptRoot.appendingPathComponent("autonomy_continuation_drill.sh"),
+            encoding: .utf8
+        )
+        let releaseCandidate = try String(
+            contentsOf: scriptRoot.appendingPathComponent("release_candidate.sh"),
             encoding: .utf8
         )
         let visualRegression = try String(
@@ -122,6 +131,7 @@ struct ReleaseReadinessTests {
 
         #expect(liveMaturity.contains("--foundation-models"))
         #expect(liveMaturity.contains("--cloudkit-conflict"))
+        #expect(liveMaturity.contains("--two-mac-cloudkit"))
         #expect(liveMaturity.contains("--visual"))
         #expect(liveMaturity.contains("release_candidate.sh"))
         #expect(liveMaturity.contains("provider_probe_maintenance.sh"))
@@ -138,12 +148,20 @@ struct ReleaseReadinessTests {
         #expect(cloudKitDrill.contains("PlistBuddy"))
         #expect(cloudKitDrill.contains("CloudKit container"))
         #expect(cloudKitDrill.contains("Passing that rehearsal is necessary but not sufficient"))
+        #expect(twoMacCloudKitDrill.contains("Solaris971.local"))
+        #expect(twoMacCloudKitDrill.contains("--require-ssh"))
+        #expect(twoMacCloudKitDrill.contains("Remote Login/SSH did not capture peer evidence"))
 
         #expect(autonomyDrill.contains("AutonomyTrustLane"))
         #expect(autonomyDrill.contains("prepareRun"))
         #expect(autonomyDrill.contains("maxFilesChangedPerTask"))
 
+        #expect(releaseCandidate.contains("ALLOW_XCODE_MANAGED_SIGNING"))
+        #expect(releaseCandidate.contains("-allowProvisioningUpdates"))
+        #expect(releaseCandidate.contains("Developer ID Application"))
+
         #expect(visualRegression.contains("xcresult attachments are authoritative"))
         #expect(visualRegression.contains("testSprintLVisualRegressionSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintNExpandedVisualRegressionSnapshotMatrix"))
     }
 }

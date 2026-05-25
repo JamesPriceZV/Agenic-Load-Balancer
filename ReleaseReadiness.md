@@ -42,6 +42,18 @@ RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_RC_$(date +%Y%m%d_%H%M%S
 
 If the certificate is missing, install a Developer ID Application certificate in Keychain Access or Xcode Accounts. If the notary profile is missing, create it with `xcrun notarytool store-credentials` using an app-specific password or App Store Connect API key, then rerun the credential check. Do not paste Apple account passwords, API keys, or app-specific passwords into planning docs.
 
+If Xcode can manage the Developer ID certificate/provisioning profile even though `security find-identity` does not list a local private key, the release script can use Xcode-managed signing for archive/export:
+
+```sh
+ALLOW_XCODE_MANAGED_SIGNING=1 \
+ALLOW_PROVISIONING_UPDATES=1 \
+TEAM_ID="A45694H5ZG" \
+RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_RC_$(date +%Y%m%d_%H%M%S)" \
+  script/release_candidate.sh --archive --export --package
+```
+
+This still does not replace notarization credentials. `NOTARY_PROFILE` or `ALB_NOTARY_PROFILE` must name a `notarytool` keychain profile before `--notarize` or `--all` can complete.
+
 ## Entitlement Truth
 
 - Bundle ID: `com.zincoverde.Agenic-Load-Balancer`

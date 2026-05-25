@@ -26,6 +26,8 @@ NOTARY_LOG_PATH="$RUN_ROOT/notary-submit.json"
 DEVELOPER_ID_IDENTITY="${DEVELOPER_ID_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-${ALB_NOTARY_PROFILE:-}}"
 TEAM_ID="${TEAM_ID:-}"
+ALLOW_XCODE_MANAGED_SIGNING="${ALLOW_XCODE_MANAGED_SIGNING:-0}"
+ALLOW_PROVISIONING_UPDATES="${ALLOW_PROVISIONING_UPDATES:-0}"
 
 ARCHIVE_ENABLED=0
 EXPORT_ENABLED=0
@@ -55,6 +57,11 @@ Environment:
   NOTARY_PROFILE         notarytool keychain profile name. Required for --notarize.
   ALB_NOTARY_PROFILE     Alternate notarytool profile env var.
   TEAM_ID                Optional Apple Developer Team ID for exportOptions.plist.
+  ALLOW_XCODE_MANAGED_SIGNING=1
+                         Permit archive/export to attempt Xcode-managed
+                         Developer ID signing when no local identity is visible.
+  ALLOW_PROVISIONING_UPDATES=1
+                         Adds -allowProvisioningUpdates for Xcode-managed signing.
 USAGE
 }
 
@@ -124,6 +131,7 @@ detect_developer_id_identity() {
 }
 
 developer_id_identity="$(detect_developer_id_identity || true)"
+xcode_managed_signing_enabled=0
 
 require_tool xcodebuild
 require_tool codesign
@@ -133,9 +141,16 @@ require_tool ditto
 require_tool spctl
 
 if [[ -z "$developer_id_identity" ]]; then
-  fail "no unique Developer ID Application identity found. Install a Developer ID Application certificate or set DEVELOPER_ID_IDENTITY."
+  if [[ "$ALLOW_XCODE_MANAGED_SIGNING" == "1" ]]; then
+    xcode_managed_signing_enabled=1
+    echo "note: no local Developer ID Application identity is visible; Xcode-managed Developer ID signing will be attempted for archive/export."
+    echo "note: if this fails, install/download the Developer ID Application certificate into the login keychain or set DEVELOPER_ID_IDENTITY."
+  else
+    fail "no unique Developer ID Application identity found. Install a Developer ID Application certificate, set DEVELOPER_ID_IDENTITY, or set ALLOW_XCODE_MANAGED_SIGNING=1 to let xcodebuild attempt managed signing."
+  fi
+else
+  pass "Developer ID identity available: $developer_id_identity"
 fi
-pass "Developer ID identity available: $developer_id_identity"
 
 if [[ -n "$NOTARY_PROFILE" ]]; then
   pass "notarytool keychain profile selected: $NOTARY_PROFILE"
@@ -161,23 +176,42 @@ run_or_print() {
 }
 
 archive_app() {
-  local args=(
-    xcodebuild archive
+  local args=(xcodebuild)
+  if [[ "$ALLOW_PROVISIONING_UPDATES" == "1" ]]; then
+    args+=(-allowProvisioningUpdates)
+  fi
+  args+=(
+    archive
     -project "$PROJECT_PATH"
     -scheme "$SCHEME"
     -configuration "$CONFIGURATION"
     -destination "$DESTINATION"
     -archivePath "$ARCHIVE_PATH"
-    CODE_SIGN_STYLE=Manual
-    CODE_SIGN_IDENTITY="$developer_id_identity"
     OTHER_CODE_SIGN_FLAGS=--timestamp
   )
+  if [[ "$xcode_managed_signing_enabled" -eq 1 ]]; then
+    args+=(
+      CODE_SIGN_STYLE=Automatic
+    )
+    if [[ -n "$TEAM_ID" ]]; then
+      args+=(DEVELOPMENT_TEAM="$TEAM_ID")
+    fi
+  else
+    args+=(
+      CODE_SIGN_STYLE=Manual
+      CODE_SIGN_IDENTITY="$developer_id_identity"
+    )
+  fi
   run_or_print "${args[@]}"
   pass "archive completed at $ARCHIVE_PATH"
 }
 
 write_export_options() {
   local plist="$RUN_ROOT/exportOptions.plist"
+  local signing_style="manual"
+  if [[ "$xcode_managed_signing_enabled" -eq 1 ]]; then
+    signing_style="automatic"
+  fi
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -186,7 +220,7 @@ write_export_options() {
   <key>method</key>
   <string>developer-id</string>
   <key>signingStyle</key>
-  <string>manual</string>
+  <string>$signing_style</string>
   <key>signingCertificate</key>
   <string>Developer ID Application</string>
   <key>stripSwiftSymbols</key>
@@ -208,7 +242,17 @@ EOF
 export_archive() {
   local export_options
   export_options="$(write_export_options)"
-  run_or_print xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_PATH" -exportOptionsPlist "$export_options"
+  local args=(xcodebuild)
+  if [[ "$ALLOW_PROVISIONING_UPDATES" == "1" ]]; then
+    args+=(-allowProvisioningUpdates)
+  fi
+  args+=(
+    -exportArchive
+    -archivePath "$ARCHIVE_PATH"
+    -exportPath "$EXPORT_PATH"
+    -exportOptionsPlist "$export_options"
+  )
+  run_or_print "${args[@]}"
   pass "export completed at $EXPORT_PATH"
 }
 

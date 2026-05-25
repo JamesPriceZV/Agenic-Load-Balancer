@@ -130,6 +130,56 @@ final class Agenic_Load_BalancerUITests: XCTestCase {
     }
 
     @MainActor
+    func testSprintNExpandedVisualRegressionSnapshotMatrix() throws {
+        launchAgenic()
+
+        tap(identifier: "Toolbar.CommandBar")
+        XCTAssertTrue(element("CommandBar.Title").waitForExistence(timeout: 5))
+        assertVisibleWithinWindow(identifier: "CommandBar.Input")
+        try assertVisualSnapshot(named: "command-bar-overlay", baseline: .settingsSheet)
+        tap(identifier: "CommandBar.FooterClose")
+        XCTAssertTrue(element("CommandBar.Title").waitForNonExistence(timeout: 5))
+
+        tap(identifier: "Sidebar.providers")
+        XCTAssertTrue(element("Screen.Providers").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "providers-catalog", baseline: .contentDense)
+
+        expandProjectsDisclosure()
+        tap(identifier: "Sidebar.ManageWorkspaces")
+        XCTAssertTrue(element("Screen.Projects").waitForExistence(timeout: 5))
+        tap(identifier: "ProjectRow.uitest-integrity-evaluator.Settings")
+        XCTAssertTrue(element("Sheet.ProjectSettings").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "project-settings-policy", baseline: .settingsSheet)
+        tap(label: "Cancel")
+        XCTAssertTrue(element("Sheet.ProjectSettings").waitForNonExistence(timeout: 5))
+
+        expandWorkspace(projectID: "uitest-integrity-evaluator")
+        tap(identifier: "Sidebar.WorkspaceRoot.uitest-integrity-evaluator")
+        XCTAssertTrue(element("Screen.Workspace.uitest-integrity-evaluator").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "workspace-task-tree", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.Task.coordination:uitest-coordination-active")
+        XCTAssertTrue(element("Screen.WorkspaceTask.coordination:uitest-coordination-active").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "workspace-task-detail", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.restoreCenter")
+        XCTAssertTrue(element("Screen.Restore").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "restore-center", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.autonomy")
+        XCTAssertTrue(element("Screen.Autonomy").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "autonomy-control-room", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.history")
+        XCTAssertTrue(element("Screen.History").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "history-ledger", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.agentNotes")
+        XCTAssertTrue(element("Screen.AgentNotes").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "agentnotes-reconciliation", baseline: .contentDense)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             let app = XCUIApplication()
