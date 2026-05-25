@@ -1,6 +1,6 @@
 # AgentPlan.md - Agenic Load-Balancer Comprehensive Implementation Plan
 
-Updated: May 22, 2026
+Updated: May 25, 2026
 
 ## Active Source Truth
 
@@ -25,7 +25,8 @@ Updated: May 22, 2026
 - Sprint G from this roadmap is implemented as the first automated UI flow and launch-verification slice. UI tests now cover the minimum-window Command Bar, Prompt Router, Settings Tools controls, Projects controls, project settings, workspace/task navigation, Restore, Autonomy, and light/dark launch flows using deterministic `--uitesting` fixtures and stable accessibility identifiers.
 - Sprint J from the live-maturity queue is implemented as provider probe maintenance plus XcodeBuildMCP source support. The provider catalog now includes XcodeBuildMCP as a local tool source, auth recipes treat it as no-auth/MCP-configured, safe probe reporting covers installed CLI/provider state without launching login flows, and probe classifiers separate API-key, account-login, custom-profile, quota, rate, subscription, and context signals.
 - Sprint K from the live-maturity queue is implemented as the first conflict-recovery drill. The Conflict Center can seed a local synthetic two-machine recovery scenario, merge commutative audit history, plan restore-into-new-copy for risky task divergence, persist the drill evidence into SwiftData, and refresh CloudKit save status without mutating target entities.
-- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint K rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint L from the live-maturity queue is implemented as the first screenshot-diff visual-regression matrix. UI tests now capture dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center screenshots, attach JSON visual fingerprints, assert structural visual metrics, and run through `script/visual_regression.sh` with USB-backed results.
+- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint L rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -58,6 +59,7 @@ Updated: May 22, 2026
 - Autonomy readiness control room with safety contract checklist, readiness score, persisted queue, validation metrics, and peer sync posture.
 - Safety audit tests proving unavailable Foundation Models paths degrade to no-op/fallback behavior and mutating command-bar actions return draft/approval-required results.
 - Foundation Models diagnostics runner and Settings > Agents diagnostics UI that probe availability, command-bar metrics, post-run summaries, and close-score routing tie-breaks without blocking deterministic app behavior.
+- Screenshot-diff visual regression smoke matrix for dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center, with screenshot and JSON metric attachments retained in the `xcresult` bundle.
 
 ## What Is Partial Or Needs Live-System Validation
 
@@ -66,7 +68,7 @@ Updated: May 22, 2026
 - Provider auth recipes are grounded in official flows and expose account/API-key lanes. Sprint J adds a safe live probe report and XcodeBuildMCP source support, but each provider's login, subscription state, quota endpoint, and CLI behavior can still change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
 - Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
-- UI validation now has launch coverage, minimum-window flow coverage, and a first deterministic workspace/task flow. Screenshot-diff baselines, maximized/full-screen matrices, provider setup edge cases, and run-sheet failure-state permutations still need broader automated coverage.
+- UI validation now has launch coverage, minimum-window flow coverage, deterministic workspace/task coverage, and a first screenshot-diff visual-regression matrix. Maximized/full-screen matrices, provider setup edge cases, run-sheet failure-state permutations, and broader light/dark screenshot baselines still need expanded automated coverage.
 - Conflict resolution now has deterministic primitives, audit records, a user-facing dry-run Conflict Center, and a local recovery drill that proves safe audit merge and risky divergence restore planning. The remaining "perfect conflict resolution" promise needs physical cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows against real project data.
 
 ## Deferred Future Queue
@@ -79,7 +81,7 @@ Updated: May 22, 2026
 - Trusted-autopilot expansion: build on the new Sprint F lane templates with richer live evidence collection, automatic snapshot creation, bounded multi-step execution, and per-lane recovery drills.
 - Autonomous loop scheduler: persist goals, break them into bounded sprints, run validation gates, checkpoint results, ask for approvals at risk boundaries, and stop on uncertainty.
 - Provider setup UX: add status badges for account login freshness, API-key reference health, missing binary remediation, and per-provider docs snapshots.
-- Visual regression coverage: capture resized window, full screen, command bar, settings, projects/workspace task tree, providers, restore, and autonomy views across light/dark appearances.
+- Visual regression coverage expansion: extend the Sprint L matrix to resized window, full screen, command bar, providers, restore, autonomy, workspace task tree, and run-sheet success/failure states across light/dark appearances.
 - Packaging and release: finalize signing, entitlements, notarization, onboarding, privacy copy, crash/log policy, and upgrade/migration tests.
 
 ## Safety Principles
@@ -426,6 +428,24 @@ Validation:
 
 - Focused conflict drill tests passed with `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintK_Conflict_20260522_164834" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test ... -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests"`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintK_Conflict_20260522_164834/Results/ConflictDrill.xcresult`.
 
+### Sprint L - Screenshot-Diff Visual Regression
+
+Goal: catch blank, flattened, clipped, or badly shifted Liquid Glass UI regressions before screenshots reach the user.
+
+- Added `testSprintLVisualRegressionSnapshotMatrix()` to the macOS UI-test target.
+- Captures dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center screenshots under deterministic `--uitesting` fixtures.
+- Computes visual fingerprints from each screenshot: pixel dimensions, sampled pixel count, coarse color bucket count, mean luminance, luminance standard deviation, and average neighbor delta.
+- Asserts each target view remains nonblank, sufficiently detailed, structurally contrasted, and within expected luminance bounds.
+- Keeps screenshot attachments and JSON metric attachments in the `xcresult` bundle with `.keepAlways`.
+- Treats standalone PNG/JSON file export as best effort because macOS UI-test sandboxes can deny arbitrary output writes; the `xcresult` attachments are the authoritative visual evidence.
+- Added `script/visual_regression.sh` to run the matrix with USB-backed `DerivedData`, build products, and result bundles.
+
+Validation:
+
+- `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900" script/visual_regression.sh` returned `** TEST SUCCEEDED **`.
+- Result bundle: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900/Results/VisualRegression.xcresult`.
+- The passing run executed one UI test in 40.961 seconds and retained screenshots plus metric JSON attachments for all five Sprint L surfaces.
+
 ### Remaining Live-Maturity Queue
 
-The remaining queue is now physical multi-machine conflict recovery drills, expanded screenshot-diff visual regression, ongoing provider probe upkeep as CLIs drift, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.
+The remaining queue is now physical multi-machine conflict recovery drills, broader screenshot-diff matrices beyond the Sprint L smoke set, ongoing provider probe upkeep as CLIs drift, periodic live Foundation Models checks on eligible macOS 26.x machines, bounded-autonomy continuation drills, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.

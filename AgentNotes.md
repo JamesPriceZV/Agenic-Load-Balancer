@@ -12,6 +12,14 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint L screenshot-diff visual regression
+  Assignee: OpenAI Codex
+  Detail: Added a deterministic visual-regression UI-test matrix for dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center. The test keeps screenshots and JSON visual fingerprints as `xcresult` attachments, checks window visibility geometry, and fails on blank/flat/clipped visual regressions through dimension, color-bucket, luminance, and structural-contrast thresholds. Added `script/visual_regression.sh` to run the matrix with USB-backed DerivedData/build/result roots. Standalone PNG/JSON export is best effort because the macOS UI-test sandbox can deny arbitrary output-directory writes; `xcresult` attachments are authoritative.
+  Run: local Sprint L visual-regression implementation and validation turn on May 25, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900" script/visual_regression.sh` returned `** TEST SUCCEEDED **`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900/Results/VisualRegression.xcresult`.
+
 - [checkpointed] Sprint K multi-machine conflict recovery drill
   Assignee: OpenAI Codex
   Detail: Added `ConflictRecoveryDrill` and a Conflict Center `Run Drill` action so the app can rehearse cross-machine recovery locally before a physical two-machine CloudKit drill. The drill seeds synthetic local/remote peers, a rollback snapshot anchor, a safe commutative audit-history conflict, and a risky concurrent task-status divergence into SwiftData, then runs the existing preview/resolution machinery. It records a `.merge` decision for safe audit history and a `.restoreIntoNewCopy` plan for risky divergence while leaving target project/task entities untouched.
