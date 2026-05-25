@@ -91,4 +91,59 @@ struct ReleaseReadinessTests {
         #expect(releaseCandidateScript.contains("spctl -a -vv --type execute"))
         #expect(releaseCandidateScript.contains("NOTARY_PROFILE"))
     }
+
+    @Test func liveMaturityDoctorScriptsStayWired() throws {
+        let root = Self.repositoryRoot
+        let scriptRoot = root.appendingPathComponent("script")
+        let liveMaturity = try String(
+            contentsOf: scriptRoot.appendingPathComponent("live_maturity_check.sh"),
+            encoding: .utf8
+        )
+        let providerMaintenance = try String(
+            contentsOf: scriptRoot.appendingPathComponent("provider_probe_maintenance.sh"),
+            encoding: .utf8
+        )
+        let foundationModels = try String(
+            contentsOf: scriptRoot.appendingPathComponent("foundation_models_check.sh"),
+            encoding: .utf8
+        )
+        let cloudKitDrill = try String(
+            contentsOf: scriptRoot.appendingPathComponent("cloudkit_conflict_drill.sh"),
+            encoding: .utf8
+        )
+        let autonomyDrill = try String(
+            contentsOf: scriptRoot.appendingPathComponent("autonomy_continuation_drill.sh"),
+            encoding: .utf8
+        )
+        let visualRegression = try String(
+            contentsOf: scriptRoot.appendingPathComponent("visual_regression.sh"),
+            encoding: .utf8
+        )
+
+        #expect(liveMaturity.contains("--foundation-models"))
+        #expect(liveMaturity.contains("--cloudkit-conflict"))
+        #expect(liveMaturity.contains("--visual"))
+        #expect(liveMaturity.contains("release_candidate.sh"))
+        #expect(liveMaturity.contains("provider_probe_maintenance.sh"))
+
+        #expect(providerMaintenance.contains("BASELINE_REPORT"))
+        #expect(providerMaintenance.contains("provider_probe_report.sh"))
+        #expect(providerMaintenance.contains("diff -u"))
+
+        #expect(foundationModels.contains("SystemLanguageModel.default.availability"))
+        #expect(foundationModels.contains("LanguageModelSession"))
+        #expect(foundationModels.contains("response=skipped"))
+
+        #expect(cloudKitDrill.contains("--role local|primary|secondary"))
+        #expect(cloudKitDrill.contains("PlistBuddy"))
+        #expect(cloudKitDrill.contains("CloudKit container"))
+        #expect(cloudKitDrill.contains("Passing that rehearsal is necessary but not sufficient"))
+
+        #expect(autonomyDrill.contains("AutonomyTrustLane"))
+        #expect(autonomyDrill.contains("prepareRun"))
+        #expect(autonomyDrill.contains("maxFilesChangedPerTask"))
+
+        #expect(visualRegression.contains("xcresult attachments are authoritative"))
+        #expect(visualRegression.contains("testSprintLVisualRegressionSnapshotMatrix"))
+    }
 }

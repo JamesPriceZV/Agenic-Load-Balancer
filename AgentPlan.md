@@ -26,7 +26,8 @@ Updated: May 25, 2026
 - Sprint J from the live-maturity queue is implemented as provider probe maintenance plus XcodeBuildMCP source support. The provider catalog now includes XcodeBuildMCP as a local tool source, auth recipes treat it as no-auth/MCP-configured, safe probe reporting covers installed CLI/provider state without launching login flows, and probe classifiers separate API-key, account-login, custom-profile, quota, rate, subscription, and context signals.
 - Sprint K from the live-maturity queue is implemented as the first conflict-recovery drill. The Conflict Center can seed a local synthetic two-machine recovery scenario, merge commutative audit history, plan restore-into-new-copy for risky task divergence, persist the drill evidence into SwiftData, and refresh CloudKit save status without mutating target entities.
 - Sprint L from the live-maturity queue is implemented as the first screenshot-diff visual-regression matrix. UI tests now capture dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center screenshots, attach JSON visual fingerprints, assert structural visual metrics, and run through `script/visual_regression.sh` with USB-backed results.
-- Future work remains, but it should be treated as scoped live-maturity roadmap work after Sprint L rather than unfinished Phase 7.3-7.6 implementation.
+- Sprint M from the live-maturity queue is implemented as repo-owned doctor automation for the remaining release-maturity seams: provider drift, Foundation Models host health, physical CloudKit drill manifests, bounded-autonomy continuation safety, and Developer ID/notary credential readiness.
+- Future work remains, but it should be treated as scoped live-maturity operations after Sprint M rather than unfinished Phase 7.3-7.6 implementation.
 
 ## What Is 100 Percent Implemented In The Active Tree
 
@@ -60,14 +61,15 @@ Updated: May 25, 2026
 - Safety audit tests proving unavailable Foundation Models paths degrade to no-op/fallback behavior and mutating command-bar actions return draft/approval-required results.
 - Foundation Models diagnostics runner and Settings > Agents diagnostics UI that probe availability, command-bar metrics, post-run summaries, and close-score routing tie-breaks without blocking deterministic app behavior.
 - Screenshot-diff visual regression smoke matrix for dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center, with screenshot and JSON metric attachments retained in the `xcresult` bundle.
+- Live-maturity doctor scripts that safely rehearse or report provider-probe drift, Foundation Models live availability, Developer ID/notary credential readiness, CloudKit physical drill prerequisites, and bounded-autonomy continuation safety seams without running installers or login flows.
 
 ## What Is Partial Or Needs Live-System Validation
 
-- Live Foundation Models happy path now has an explicit in-app diagnostics route, but it still needs periodic observation on macOS 26.x machines where Apple Intelligence and Foundation Models are actually available. Tests cover scripted/fallback paths and the diagnostics control flow, not every live model behavior.
-- CloudKit sync is wired, status is observable, Sprint E exposes a conflict inspection/resolution surface, and Sprint K adds a local recovery drill that exercises merge plus restore-into-new-copy decisions. "Perfect cross-machine sync" still needs repeated physical multi-device, multi-account, network-failure, and CloudKit conflict-injection validation before it can be described as production-proven.
-- Provider auth recipes are grounded in official flows and expose account/API-key lanes. Sprint J adds a safe live probe report and XcodeBuildMCP source support, but each provider's login, subscription state, quota endpoint, and CLI behavior can still change and needs recurring probe maintenance.
+- Live Foundation Models happy path now has an explicit in-app diagnostics route and a scriptable `script/foundation_models_check.sh` live check. The May 25, 2026 host returned a minimal `LanguageModelSession` response successfully on macOS 26.5, but this remains periodic live validation because Apple Intelligence availability, locale, policy, and model behavior can drift by machine.
+- CloudKit sync is wired, status is observable, Sprint E exposes a conflict inspection/resolution surface, Sprint K adds a local recovery drill, and Sprint M adds `script/cloudkit_conflict_drill.sh` to produce role-specific physical drill manifests. "Perfect cross-machine sync" still needs repeated physical multi-device, multi-account, network-failure, and CloudKit conflict-injection validation before it can be described as production-proven.
+- Provider auth recipes are grounded in official flows and expose account/API-key lanes. Sprint J adds a safe live probe report, XcodeBuildMCP source support, and Sprint M adds baseline-aware `script/provider_probe_maintenance.sh`, but each provider's login, subscription state, quota endpoint, and CLI behavior can still change and needs recurring probe maintenance.
 - Context compaction now covers pre-dispatch AgentNotes pressure and run telemetry, and context-window failures now create continuation prompts. A full autonomous continuation loop still needs provider-specific resume execution policies and richer source-file summarization before the app can safely continue long work without approval.
-- Autonomy now has trusted-lane policy templates and per-task safety reviews. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
+- Autonomy now has trusted-lane policy templates, per-task safety reviews, and `script/autonomy_continuation_drill.sh` to confirm the bounded continuation seams stay wired. It remains deliberately bounded: arbitrary repo mutation, multi-step unattended execution, and recovery still require future live validation and explicit approval boundaries.
 - UI validation now has launch coverage, minimum-window flow coverage, deterministic workspace/task coverage, and a first screenshot-diff visual-regression matrix. Maximized/full-screen matrices, provider setup edge cases, run-sheet failure-state permutations, and broader light/dark screenshot baselines still need expanded automated coverage.
 - Conflict resolution now has deterministic primitives, audit records, a user-facing dry-run Conflict Center, and a local recovery drill that proves safe audit merge and risky divergence restore planning. The remaining "perfect conflict resolution" promise needs physical cross-machine recovery drills, richer merge-domain policies for each entity type, and end-to-end restore-into-copy workflows against real project data.
 
@@ -82,7 +84,7 @@ Updated: May 25, 2026
 - Autonomous loop scheduler: persist goals, break them into bounded sprints, run validation gates, checkpoint results, ask for approvals at risk boundaries, and stop on uncertainty.
 - Provider setup UX: add status badges for account login freshness, API-key reference health, missing binary remediation, and per-provider docs snapshots.
 - Visual regression coverage expansion: extend the Sprint L matrix to resized window, full screen, command bar, providers, restore, autonomy, workspace task tree, and run-sheet success/failure states across light/dark appearances.
-- Packaging and release: finalize signing, entitlements, notarization, onboarding, privacy copy, crash/log policy, and upgrade/migration tests.
+- Packaging and release: rerun `script/release_candidate.sh` and `script/live_maturity_check.sh` after a real Developer ID Application identity and notarytool profile are installed, then finalize onboarding, privacy copy, crash/log policy, and upgrade/migration tests.
 
 ## Safety Principles
 
@@ -446,6 +448,32 @@ Validation:
 - Result bundle: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900/Results/VisualRegression.xcresult`.
 - The passing run executed one UI test in 40.961 seconds and retained screenshots plus metric JSON attachments for all five Sprint L surfaces.
 
+### Sprint M - Live Maturity Doctors
+
+Goal: make the remaining live-release seams repeatable, observable, and honest without pretending that physical devices or Apple signing credentials can be simulated.
+
+- Added `script/live_maturity_check.sh` as the orchestration entry point for recurring release-maturity checks.
+- Added `script/provider_probe_maintenance.sh` to run the safe provider probe report, optionally compare it against a baseline report, and classify provider drift as captured, stable, changed, or blocked.
+- Added `script/foundation_models_check.sh` to compile and run a minimal Swift Foundation Models availability/response probe under a USB-backed run root. It reports framework availability, model availability, response text, duration, and strict/pass/fail status without making Foundation Models a requirement for normal app behavior.
+- Added `script/cloudkit_conflict_drill.sh` to generate local, primary, or secondary physical-drill manifests for a real two-machine CloudKit conflict test. The local manifest is a rehearsal; primary/secondary roles remain blocked until peer evidence is supplied.
+- Added `script/autonomy_continuation_drill.sh` to verify the bounded autonomy continuation seams remain present: trust lanes, approval requirements, task preparation, validation gates, rollback evidence, and changed-file caps.
+- Added release-readiness regression coverage so the Sprint M doctor scripts stay wired into the repo contract.
+- Kept Developer ID archive/notarization blocked unless `script/release_candidate.sh --verify-credentials` finds a real Developer ID Application identity and notarytool profile; the new doctor reports that blocker instead of hiding it.
+- Kept every live-maturity script non-secret and non-invasive: no installers, browser login, device-code auth, or provider-login commands run silently.
+
+Acceptance:
+
+- A maintainer can run one command to learn which live-release maturity items are green, blocked, or awaiting physical evidence.
+- Foundation Models, provider probes, Developer ID credentials, CloudKit physical drills, and autonomy continuation checks all produce repo-owned reports under a chosen `RUN_ROOT`.
+- The app remains honest that physical multi-machine CloudKit validation, live provider auth/quota drift, and Developer ID/notary credentials are live-system dependencies.
+
+Validation:
+
+- `bash -n script/foundation_models_check.sh script/provider_probe_maintenance.sh script/cloudkit_conflict_drill.sh script/autonomy_continuation_drill.sh script/live_maturity_check.sh script/visual_regression.sh script/provider_probe_report.sh script/release_candidate.sh script/release_preflight.sh` passed.
+- `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_LiveMaturity_20260525_110600" PROBE_TIMEOUT_SECONDS=4 script/live_maturity_check.sh` completed with provider probe maintenance, Foundation Models live check, CloudKit manifest, and bounded-autonomy drill succeeding while Developer ID/notary remained correctly blocked by missing release credentials.
+- Live maturity report: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_LiveMaturity_20260525_110600/live-maturity-report.md`.
+- Focused `ReleaseReadinessTests` passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_Tests_20260525_111000/Results/ReleaseReadiness.xcresult`.
+
 ### Remaining Live-Maturity Queue
 
-The remaining queue is now physical multi-machine conflict recovery drills, broader screenshot-diff matrices beyond the Sprint L smoke set, ongoing provider probe upkeep as CLIs drift, periodic live Foundation Models checks on eligible macOS 26.x machines, bounded-autonomy continuation drills, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed.
+The remaining queue is now physical two-machine CloudKit conflict recovery execution, broader screenshot-diff matrices beyond the Sprint L smoke set, ongoing provider probe upkeep as CLIs drift, periodic live Foundation Models checks on eligible macOS 26.x machines, and a future signed archive/notarization rerun after a Developer ID Application certificate plus notarytool keychain profile are installed. Fully autonomous continuation loops remain bounded and approval-gated by design; Sprint M verifies those safety seams instead of removing them.

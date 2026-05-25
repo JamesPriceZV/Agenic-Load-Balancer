@@ -12,11 +12,19 @@ Created: May 5, 2026
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
 ## Active Work
+- [checkpointed] Sprint M live-maturity doctor automation
+  Assignee: OpenAI Codex
+  Detail: Added repo-owned live-maturity doctor scripts for the remaining release-maturity seams. `script/live_maturity_check.sh` orchestrates safe checks for provider probe drift, live Foundation Models host behavior, Developer ID/notary credential readiness, physical CloudKit conflict-drill manifests, and bounded-autonomy continuation seams. Supporting scripts are `script/provider_probe_maintenance.sh`, `script/foundation_models_check.sh`, `script/cloudkit_conflict_drill.sh`, and `script/autonomy_continuation_drill.sh`. The scripts write reports under USB-backed run roots and intentionally avoid silent installers, browser login, device-code auth, and provider login flows. Developer ID/archive notarization remains correctly blocked until a real Developer ID Application identity and notarytool profile are installed; physical CloudKit proof still requires two machines and peer evidence.
+  Run: local Sprint M live-maturity implementation and validation turn on May 25, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: `bash -n script/foundation_models_check.sh script/provider_probe_maintenance.sh script/cloudkit_conflict_drill.sh script/autonomy_continuation_drill.sh script/live_maturity_check.sh script/visual_regression.sh script/provider_probe_report.sh script/release_candidate.sh script/release_preflight.sh` passed. `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_LiveMaturity_20260525_110600" PROBE_TIMEOUT_SECONDS=4 script/live_maturity_check.sh` completed with provider probe maintenance, Foundation Models live check, CloudKit manifest, and bounded-autonomy drill succeeding while Developer ID/notary remained blocked by missing release credentials; report `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_LiveMaturity_20260525_110600/live-maturity-report.md`. Focused `ReleaseReadinessTests` passed with result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintM_Tests_20260525_111000/Results/ReleaseReadiness.xcresult`.
+
 - [checkpointed] Sprint L screenshot-diff visual regression
   Assignee: OpenAI Codex
   Detail: Added a deterministic visual-regression UI-test matrix for dashboard, Prompt Router, Settings Tools, Projects, and Conflict Center. The test keeps screenshots and JSON visual fingerprints as `xcresult` attachments, checks window visibility geometry, and fails on blank/flat/clipped visual regressions through dimension, color-bucket, luminance, and structural-contrast thresholds. Added `script/visual_regression.sh` to run the matrix with USB-backed DerivedData/build/result roots. Standalone PNG/JSON export is best effort because the macOS UI-test sandbox can deny arbitrary output-directory writes; `xcresult` attachments are authoritative.
   Run: local Sprint L visual-regression implementation and validation turn on May 25, 2026
-  Commit: this checkpoint commit
+  Commit: `195c668` (`Add visual regression snapshots`)
   Conflict: none
   Validation: `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900" script/visual_regression.sh` returned `** TEST SUCCEEDED **`; result bundle `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintL_Visual_20260525_104900/Results/VisualRegression.xcresult`.
 
