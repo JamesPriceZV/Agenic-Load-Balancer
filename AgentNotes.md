@@ -11,20 +11,29 @@ Created: May 5, 2026
 - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
-## Handoff (2026-05-26, OpenAI Codex validation closeout)
+## Handoff (2026-05-26, OpenAI Codex Sprint Q.3 closeout)
 
-Read this first. The earlier Sprint O/P/Q handoff in this file was stale:
-the work is no longer uncommitted on top of `e05ab7b`. At validation start,
-the active iCloud checkout was clean and synced to `origin/main` at `ad83322`
-(`Checkpoint autonomy release maturity updates`), with the Sprint O.1-O.4,
-Sprint P.1-P.2, and Sprint Q.1 implementation committed and pushed.
+Read this first. The canonical writable checkout is the iCloud path in the
+coordination rules above. The OneDrive checkout at
+`/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer`
+is stale and must not receive new work. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer`
+remains read-only archive material only.
 
-Validation completed on the developer Mac after that checkpoint:
-  1. Focused Sprint O/P/Q suite passed:
+Current repo state for the next agent:
+  1. `main` is pushed to `origin/main` at `b713b4e` (`Record Sprint Q3 scheduler checkpoint`).
+  2. Sprint Q.3 implementation is committed at `6c87f68` (`Add bounded autonomous loop scheduler`).
+  3. The only known local dirty item after the push is untracked scratch:
+     `Agenic Load-Balancer/Services/AutonomousLoopScheduler.swift.bak`.
+     Leave it out of commits unless the user explicitly asks otherwise.
+
+Validation completed on the developer Mac:
+  1. Focused Sprint Q.3 scheduler suite passed:
+     `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ3_Tests_20260526_133737/Results/SprintQ3.xcresult`
+  2. Earlier focused Sprint O/P/Q suite passed:
      `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_Tests_20260525_231201/Results/SprintOPQ.xcresult`
-  2. Expanded visual regression passed:
+  3. Expanded visual regression passed:
      `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_Visual_20260525_231504/Results/VisualRegression.xcresult`
-  3. Live maturity refresh passed:
+  4. Live maturity refresh passed:
      `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_LiveMaturity_20260525_232024/live-maturity-report.md`
 
 Still live-blocked by external action:
@@ -36,19 +45,16 @@ Still live-blocked by external action:
     manifest/screenshots back and verify with `--verify-peer-evidence`.
 
 Current pure-code state:
-  - Sprint Q.2 is now checkpointed as the provider remediation and visual
+  - Sprint Q.2 is checkpointed as the provider remediation and visual
     regression polish slice. It covers Conflict Center recovery status,
     continuation history, provider freshness remediation, and Foundation Models
     diagnostics fixture states.
-  - Sprint Q.3: autonomous loop scheduler with persisted multi-sprint goals,
-    bounded sub-sprints, and validation gates between them.
-  - Sprint Q.4: actual restore-into-new-copy workflow with sibling clone,
-    scoped SwiftData row copy, AgentNotes divergence note, and Conflict Center
-    action wiring.
-
-Coordination rule reminder: do not write new data to the OneDrive checkout at
-`/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer`.
-The canonical writable root is the iCloud path above. The OneDrive copy is stale.
+  - Sprint Q.3 is checkpointed as the bounded autonomous loop scheduler with
+    persisted multi-sprint goals, topological task ordering, validation gates,
+    precise halt reasons, and per-iteration audit rows.
+  - Next pure-code pickup is Sprint Q.4: actual restore-into-new-copy workflow
+    with sibling clone, scoped SwiftData row copy, AgentNotes divergence note,
+    and Conflict Center action wiring.
 
 ## Active Work
 - [checkpointed] Sprint Q.3 autonomous loop scheduler
