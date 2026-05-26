@@ -48,7 +48,7 @@ struct AutonomousLoopBudget: Sendable, Hashable {
 
 /// One iteration's worth of state, recorded into the report so callers
 /// can render the full chain in the autonomy control room.
-struct AutonomousLoopIteration: Sendable, Hashable, Identifiable {
+struct AutonomousLoopIteration: Sendable, Hashable, Identifiable, Codable {
     enum Status: String, Sendable, Hashable, Codable {
         /// The task was inspection/plan-only/docs-only — marked complete
         /// without invoking a validation gate or provider.
@@ -78,6 +78,10 @@ struct AutonomousLoopIteration: Sendable, Hashable, Identifiable {
     let occurredAt: Date
 
     var id: String { "\(index):\(taskID)" }
+
+    private enum CodingKeys: String, CodingKey {
+        case index, taskID, taskTitle, mode, status, detail, validationCommand, validationExitCode, occurredAt
+    }
 }
 
 /// Why the scheduler stopped walking the plan.
@@ -89,6 +93,20 @@ enum AutonomousLoopHaltReason: Sendable, Hashable {
     case iterationCap(max: Int)
     case approvalCap(max: Int)
     case dependencyDeadlock(unresolvedTaskIDs: [String])
+
+    /// Stable identifier for the case used for persisted records, UI
+    /// chips, and analytics. The associated values land in `label`.
+    var kind: String {
+        switch self {
+        case .completed: "completed"
+        case .approvalRequired: "approvalRequired"
+        case .denied: "denied"
+        case .validationFailureCap: "validationFailureCap"
+        case .iterationCap: "iterationCap"
+        case .approvalCap: "approvalCap"
+        case .dependencyDeadlock: "dependencyDeadlock"
+        }
+    }
 
     var label: String {
         switch self {
@@ -446,7 +464,7 @@ struct AutonomousLoopScheduler: Sendable {
         try? modelContext.save()
 
         let pendingTaskIDs = orderedTaskIDs.filter { !completedTaskIDs.contains($0) }
-        return AutonomousLoopRunReport(
+        let report = AutonomousLoopRunReport(
             goalID: plan.goalID,
             planID: plan.planID,
             iterations: iterations,
@@ -458,6 +476,12 @@ struct AutonomousLoopScheduler: Sendable {
             startedAt: startedAt,
             endedAt: now()
         )
+        // Sprint Q.5: persist the report so the autonomy control room
+        // and the history view can rebuild what happened across
+        // sessions and (via SwiftData CloudKit sync) machines. Errors
+        // here are non-fatal — the in-memory report is still returned.
+        _ = try? AutonomousLoopPersistence.persistReport(report, modelContext: modelContext, now: now())
+        return report
     }
 }
 
@@ -542,5 +566,91 @@ enum AutonomousLoopOrder {
             }
         }
         return resolved
+    }
+}
+
+// MARK: - Sprint Q.5: persist loop reports to SwiftData
+
+/// CloudKit-compatible persistence helpers that round-trip a
+/// `AutonomousLoopRunReport` through `AutonomousLoopReportRecord`. The
+/// iterations field is stored as JSON so adding fields stays additive
+/// (no schema migration when `AutonomousLoopIteration` evolves).
+@MainActor
+enum AutonomousLoopPersistence {
+    static func persistReport(
+        _ report: AutonomousLoopRunReport,
+        modelContext: ModelContext,
+        now: Date = Date()
+    ) throws -> AutonomousLoopReportRecord {
+        let record = AutonomousLoopReportRecord(
+            identifier: "\(report.planID)-\(Int(report.endedAt.timeIntervalSince1970))",
+            goalID: report.goalID,
+            planID: report.planID,
+            haltReasonKind: report.haltReason.kind,
+            haltReasonLabel: report.haltReason.label,
+            iterationsJSON: encodeIterations(report.iterations),
+            validationFailureCount: report.validationFailureCount,
+            approvalSurfaceCount: report.approvalSurfaceCount,
+            completedTaskIDsJSON: encodeStrings(report.completedTaskIDs),
+            pendingTaskIDsJSON: encodeStrings(report.pendingTaskIDs),
+            startedAt: report.startedAt,
+            endedAt: report.endedAt,
+            createdAt: now
+        )
+        modelContext.insert(record)
+        do {
+            try modelContext.save()
+        } catch {
+            throw AutonomyExecutionError.saveFailed(error.localizedDescription)
+        }
+        return record
+    }
+
+    static func decodeIterations(_ json: String) -> [AutonomousLoopIteration] {
+        let data = Data(json.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([AutonomousLoopIteration].self, from: data)) ?? []
+    }
+
+    static func decodeTaskIDs(_ json: String) -> [String] {
+        let data = Data(json.utf8)
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    private static func encodeIterations(_ iterations: [AutonomousLoopIteration]) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(iterations),
+              let string = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return string
+    }
+
+    private static func encodeStrings(_ values: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(values),
+              let string = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return string
+    }
+}
+
+extension AutonomousLoopRunReport {
+    /// User-facing chip label used by the loop history panel. Mirrors
+    /// `AutonomousLoopReportRecord.haltReasonKind` so persisted and
+    /// in-memory reports render identically.
+    var haltReasonChipLabel: String {
+        switch haltReason {
+        case .completed: "Completed"
+        case .approvalRequired: "Approval"
+        case .denied: "Denied"
+        case .validationFailureCap: "Validation"
+        case .iterationCap: "Iteration cap"
+        case .approvalCap: "Approval cap"
+        case .dependencyDeadlock: "Dependency"
+        }
     }
 }

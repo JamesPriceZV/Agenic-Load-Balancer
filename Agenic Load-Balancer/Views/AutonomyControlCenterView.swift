@@ -23,6 +23,7 @@ struct AutonomyControlCenterView: View {
     @Query(sort: \AutonomyTaskRecord.updatedAt, order: .reverse) private var autonomyTasks: [AutonomyTaskRecord]
     @Query private var validationGates: [ValidationGateRecord]
     @Query(sort: \MachinePeerRecord.updatedAt, order: .reverse) private var machinePeers: [MachinePeerRecord]
+    @Query(sort: \AutonomousLoopReportRecord.endedAt, order: .reverse) private var loopReports: [AutonomousLoopReportRecord]
 
     let projects: [AgentProject]
     let providers: [AgentProviderProfile]
@@ -161,6 +162,9 @@ struct AutonomyControlCenterView: View {
                             if let draft {
                                 planPanel(draft)
                             }
+                            if !loopReports.isEmpty {
+                                loopHistoryPanel
+                            }
                         }
                         .frame(minWidth: 460, maxWidth: .infinity, alignment: .topLeading)
 
@@ -181,6 +185,9 @@ struct AutonomyControlCenterView: View {
                         safetyPanel
                         workPanel
                         syncPanel
+                        if !loopReports.isEmpty {
+                            loopHistoryPanel
+                        }
                     }
                 }
             }
@@ -553,6 +560,35 @@ struct AutonomyControlCenterView: View {
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.5: render persisted scheduler reports so the user can
+    /// see the most recent loop walk, its halt reason, and a compact
+    /// iteration timeline. Reports are sorted by `endedAt` descending.
+    private var loopHistoryPanel: some View {
+        let recent = Array(loopReports.prefix(3))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Loop History")
+                    .font(.headline)
+                Spacer()
+                Text("\(loopReports.count) report(s)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("Autonomy.LoopHistory.Header")
+            ForEach(recent, id: \.identifier) { report in
+                AutonomyLoopReportRow(report: report)
+            }
+            if loopReports.count > recent.count {
+                Text("+\(loopReports.count - recent.count) older")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("Autonomy.LoopHistory")
     }
 
     @MainActor
@@ -969,6 +1005,102 @@ private struct StoredAutonomyTaskRow: View {
             return .blue
         case .planned, .claimed, .none:
             return .orange
+        }
+    }
+}
+
+/// Sprint Q.5: renders a single `AutonomousLoopReportRecord` with a
+/// halt-reason chip and a compact iteration timeline.
+private struct AutonomyLoopReportRow: View {
+    let report: AutonomousLoopReportRecord
+
+    private var iterations: [AutonomousLoopIteration] {
+        AutonomousLoopPersistence.decodeIterations(report.iterationsJSON)
+    }
+
+    private var chipTint: Color {
+        switch report.haltReasonKind {
+        case "completed": .green
+        case "approvalRequired", "approvalCap": .blue
+        case "denied", "validationFailureCap", "dependencyDeadlock": .red
+        case "iterationCap": .orange
+        default: .secondary
+        }
+    }
+
+    private var chipLabel: String {
+        switch report.haltReasonKind {
+        case "completed": "Completed"
+        case "approvalRequired": "Approval"
+        case "denied": "Denied"
+        case "validationFailureCap": "Validation"
+        case "iterationCap": "Iteration cap"
+        case "approvalCap": "Approval cap"
+        case "dependencyDeadlock": "Dependency"
+        default: report.haltReasonKind.capitalized
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Plan \(report.planID.prefix(8))")
+                    .font(.subheadline.weight(.semibold))
+                    .monospaced()
+                Spacer()
+                Text(chipLabel)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(chipTint.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().stroke(chipTint.opacity(0.55), lineWidth: 1))
+                    .foregroundStyle(chipTint)
+                    .accessibilityIdentifier("Autonomy.LoopHistory.Chip.\(report.identifier)")
+            }
+            Text(report.haltReasonLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack(spacing: 12) {
+                Label("\(iterations.count) iter", systemImage: "list.number")
+                Label("\(report.validationFailureCount) fail", systemImage: "xmark.octagon")
+                    .foregroundStyle(report.validationFailureCount > 0 ? .red : .secondary)
+                Label("\(report.approvalSurfaceCount) approval", systemImage: "checkmark.shield")
+                    .foregroundStyle(report.approvalSurfaceCount > 0 ? .blue : .secondary)
+                Spacer()
+                Text(report.endedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            if !iterations.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(iterations.prefix(12)) { iteration in
+                        Circle()
+                            .fill(iterationTint(for: iteration.status))
+                            .frame(width: 8, height: 8)
+                            .help("\(iteration.taskTitle): \(iteration.detail)")
+                    }
+                    if iterations.count > 12 {
+                        Text("+\(iterations.count - 12)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("Autonomy.LoopHistory.Report.\(report.identifier)")
+    }
+
+    private func iterationTint(for status: AutonomousLoopIteration.Status) -> Color {
+        switch status {
+        case .completedAdvisory: .teal
+        case .validationPassed: .green
+        case .validationFailed: .red
+        case .approvalRequired: .blue
+        case .denied: .red
+        case .dependenciesUnresolved: .orange
         }
     }
 }

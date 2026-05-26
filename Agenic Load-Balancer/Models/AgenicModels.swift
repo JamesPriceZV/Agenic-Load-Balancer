@@ -34,6 +34,7 @@ enum AgenicDataModel {
         ConflictResolutionRecord.self,
         ValidationGateRecord.self,
         AuditTrailRecord.self,
+        AutonomousLoopReportRecord.self,
     ]
 
     static var schema: Schema {
@@ -1056,6 +1057,58 @@ final class AuditTrailRecord {
         self.taskID = taskID
         self.eventKind = eventKind
         self.detail = detail
+        self.createdAt = createdAt
+    }
+}
+
+/// Sprint Q.5: persisted snapshot of an `AutonomousLoopRunReport`.
+/// CloudKit-compatible (all fields default-valued, no relationships,
+/// no unique constraints, additive schema). Iterations are stored as
+/// JSON so additive changes to `AutonomousLoopIteration` do not need
+/// a SwiftData migration.
+@Model
+final class AutonomousLoopReportRecord {
+    var identifier: String = ""
+    var goalID: String = ""
+    var planID: String = ""
+    var haltReasonKind: String = "completed"
+    var haltReasonLabel: String = ""
+    var iterationsJSON: String = "[]"
+    var validationFailureCount: Int = 0
+    var approvalSurfaceCount: Int = 0
+    var completedTaskIDsJSON: String = "[]"
+    var pendingTaskIDsJSON: String = "[]"
+    var startedAt: Date = Date()
+    var endedAt: Date = Date()
+    var createdAt: Date = Date()
+
+    init(
+        identifier: String = UUID().uuidString,
+        goalID: String,
+        planID: String,
+        haltReasonKind: String,
+        haltReasonLabel: String,
+        iterationsJSON: String = "[]",
+        validationFailureCount: Int = 0,
+        approvalSurfaceCount: Int = 0,
+        completedTaskIDsJSON: String = "[]",
+        pendingTaskIDsJSON: String = "[]",
+        startedAt: Date = Date(),
+        endedAt: Date = Date(),
+        createdAt: Date = Date()
+    ) {
+        self.identifier = identifier
+        self.goalID = goalID
+        self.planID = planID
+        self.haltReasonKind = haltReasonKind
+        self.haltReasonLabel = haltReasonLabel
+        self.iterationsJSON = iterationsJSON
+        self.validationFailureCount = validationFailureCount
+        self.approvalSurfaceCount = approvalSurfaceCount
+        self.completedTaskIDsJSON = completedTaskIDsJSON
+        self.pendingTaskIDsJSON = pendingTaskIDsJSON
+        self.startedAt = startedAt
+        self.endedAt = endedAt
         self.createdAt = createdAt
     }
 }
