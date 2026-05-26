@@ -185,7 +185,9 @@ struct ContentView: View {
                 conflicts: conflicts,
                 operations: autonomyOperations,
                 peers: machinePeers,
-                snapshots: snapshots
+                snapshots: snapshots,
+                projects: projects,
+                tasks: autonomyTasks
             )
             .accessibilityIdentifier("Screen.Conflicts")
         case .history:
