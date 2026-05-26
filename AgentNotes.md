@@ -51,6 +51,15 @@ Coordination rule reminder: do not write new data to the OneDrive checkout at
 The canonical writable root is the iCloud path above. The OneDrive copy is stale.
 
 ## Active Work
+- [checkpointed] Sprint Q.3 autonomous loop scheduler
+  Assignee: Anthropic Claude
+  Detail: Added `Services/AutonomousLoopScheduler.swift` — a stateless, Sendable scheduler that walks an already-persisted `PersistedAutonomousPlan` in topological dependency order, evaluates each task against `AutonomyPolicy`, and halts with a precise reason when policy denies, requires approval, validation fails, the iteration / approval / validation-failure cap is reached, or a dependency deadlock is detected. Advisory tasks (`recommendOnly`, `readReview`, `planOnly` with no validation command) complete without spawning a provider; tasks with a validation command run the existing `ValidationGateRunning`; non-advisory tasks without a validation command surface for approval so the dispatcher still owns mutating work. The scheduler writes `autonomy.loop.advisoryCompleted` / `autonomy.loop.validationPassed` / `autonomy.loop.validationFailed` / `autonomy.loop.denied` / `autonomy.loop.approvalRequired` audit entries and never launches `RunDispatcher` itself. New `AutonomousLoopSchedulerTests` covers the happy-path walk, validation-failure halt, missing-validation-command approval surface, lane-restriction denial, iteration cap, and topological-order helper (including a cycle-resistant fallback).
+  Run: local Sprint Q.3 implementation turn on May 25, 2026
+  Commit: `e0cd558` (`Add bounded autonomous loop scheduler`)
+  Conflict: none
+  Validation: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests" -only-testing:"Agenic Load-BalancerTests/AutonomousProjectManagerTests" -only-testing:"Agenic Load-BalancerTests/AutonomyPolicyTests" -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests"` returned ** TEST SUCCEEDED ** on May 26, 2026. Result bundle: `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ3_Tests_20260526_133737/Results/SprintQ3.xcresult`.
+
+
 - [checkpointed] Sprint Q.2 provider remediation and visual-regression polish
   Assignee: OpenAI Codex
   Detail: Added explicit provider freshness remediation through per-provider `Re-probe` actions, severity-first provider setup sorting for actionable rows, deterministic provider edge-case fixtures, History continuation-chain panels for failed/continued runs, Conflict Center recovery status and action accessibility identifiers, and a deterministic Foundation Models diagnostics fixture for Settings > Agents. `script/visual_regression.sh` now includes `testSprintQ2RemediationVisualRegressionSnapshotMatrix`, covering provider remediation, Conflict Center recovery, continuation depth, and Foundation Models diagnostics fixture states alongside the existing Sprint L/N/O matrices.
