@@ -1730,6 +1730,40 @@ struct ApprovalSheetView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+                    HStack(spacing: 6) {
+                        let triggerLabel = ContinuationTriggerCategory(rawValue: continuation.triggerCategory)?.label
+                            ?? continuation.triggerCategory
+                        Text("Chain depth \(continuation.chainDepth)")
+                            .font(.caption2.monospaced())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.secondary.opacity(0.18), in: Capsule())
+                        Text(triggerLabel)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.secondary.opacity(0.18), in: Capsule())
+                        if continuation.requiresApproval {
+                            Text("Approval-gated")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.yellow.opacity(0.22), in: Capsule())
+                        } else {
+                            Text("Auto-resume ready")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.green.opacity(0.22), in: Capsule())
+                        }
+                        if continuation.workspaceExcerptCount > 0 {
+                            Text("\(continuation.workspaceExcerptCount) workspace excerpt(s)")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.blue.opacity(0.18), in: Capsule())
+                        }
+                    }
                     Text(continuation.summary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -2258,10 +2292,22 @@ private struct WizardTarget: Identifiable {
 private struct ProviderSetupView: View {
     @Environment(\.modelContext) private var modelContext
     let providers: [AgentProviderProfile]
+    @Query private var setups: [ProviderSetupRecord]
+    @Query private var keychainReferences: [KeychainReferenceRecord]
 
     @State private var isProbing = false
     @State private var statusText = "Installers are never run silently. Copy commands after reviewing the provider source."
     @State private var wizardTarget: WizardTarget?
+
+    private var badgeSummariesByProvider: [String: ProviderSetupBadgeSummary] {
+        Dictionary(
+            uniqueKeysWithValues: ProviderSetupBadgeBuilder.summaries(
+                providers: providers,
+                setups: setups,
+                keychainReferences: keychainReferences
+            ).map { ($0.providerID, $0) }
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -2285,7 +2331,10 @@ private struct ProviderSetupView: View {
                 }
 
                 ForEach(providers, id: \.identifier) { provider in
-                    ProviderProfileRow(provider: provider) {
+                    ProviderProfileRow(
+                        provider: provider,
+                        badgeSummary: badgeSummariesByProvider[provider.identifier]
+                    ) {
                         wizardTarget = WizardTarget(id: provider.identifier, provider: provider)
                     }
                 }
@@ -2332,6 +2381,7 @@ private struct ProviderSetupView: View {
 
 private struct ProviderProfileRow: View {
     let provider: AgentProviderProfile
+    let badgeSummary: ProviderSetupBadgeSummary?
     let onSetup: () -> Void
 
     var body: some View {
@@ -2348,8 +2398,20 @@ private struct ProviderProfileRow: View {
 
                     Spacer()
 
-                    ProviderStatusBadge(title: provider.installedState)
-                    ProviderStatusBadge(title: provider.authState)
+                    if let badgeSummary {
+                        ProviderSetupBadgeStrip(summary: badgeSummary)
+                            .accessibilityIdentifier("ProviderRow.\(provider.identifier).Badges")
+                    } else {
+                        ProviderStatusBadge(title: provider.installedState)
+                        ProviderStatusBadge(title: provider.authState)
+                    }
+                }
+
+                if let badgeSummary, badgeSummary.overallTone != .healthy {
+                    Text(badgeSummary.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("ProviderRow.\(provider.identifier).BadgeSummary")
                 }
 
                 Text(provider.capabilities.replacingOccurrences(of: ",", with: " · "))
@@ -5179,6 +5241,65 @@ private struct ProviderStatusBadge: View {
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
             .overlay(Capsule().stroke(.separator.opacity(0.35), lineWidth: 1))
+    }
+}
+
+/// Sprint P.2: structured badge chip row showing the four Sprint P.2
+/// status slots (binary / auth / credentials / freshness) with tone-driven
+/// colors plus an accessibility summary for the worst slot.
+private struct ProviderSetupBadgeStrip: View {
+    let summary: ProviderSetupBadgeSummary
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(summary.badges) { badge in
+                badgeChip(badge)
+            }
+        }
+        .accessibilityLabel(summary.summary)
+    }
+
+    private func badgeChip(_ badge: ProviderSetupBadge) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: badge.tone.systemImage)
+                .font(.caption2.weight(.semibold))
+            Text(badge.label)
+                .font(.caption2.weight(.medium))
+        }
+        .foregroundStyle(toneTextColor(badge.tone))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(toneBackground(badge.tone), in: Capsule())
+        .overlay(Capsule().stroke(toneStroke(badge.tone), lineWidth: 1))
+        .help(badge.detail + (badge.remediation.map { "\nRemediation: \($0)" } ?? ""))
+        .accessibilityIdentifier("ProviderRow.\(badge.providerID).Badge.\(badge.kind.rawValue)")
+    }
+
+    private func toneBackground(_ tone: ProviderSetupBadgeTone) -> some ShapeStyle {
+        switch tone {
+        case .attention: AnyShapeStyle(Color.red.opacity(0.16))
+        case .warning: AnyShapeStyle(Color.orange.opacity(0.18))
+        case .neutral: AnyShapeStyle(Color.blue.opacity(0.14))
+        case .healthy: AnyShapeStyle(Color.green.opacity(0.16))
+        }
+    }
+
+    private func toneStroke(_ tone: ProviderSetupBadgeTone) -> Color {
+        switch tone {
+        case .attention: .red.opacity(0.45)
+        case .warning: .orange.opacity(0.45)
+        case .neutral: .blue.opacity(0.45)
+        case .healthy: .green.opacity(0.40)
+        }
+    }
+
+    private func toneTextColor(_ tone: ProviderSetupBadgeTone) -> Color {
+        switch tone {
+        case .attention: .red
+        case .warning: .orange
+        case .neutral: .blue
+        case .healthy: .green
+        }
     }
 }
 

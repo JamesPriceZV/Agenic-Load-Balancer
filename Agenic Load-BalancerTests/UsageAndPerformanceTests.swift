@@ -269,6 +269,106 @@ struct UsageAndPerformanceTests {
         #expect(snapshot.reliabilityScore < 0.70)
     }
 
+    /// Sprint P.1: reliability snapshots now roll up continuation chain
+    /// telemetry. Auto-resume vs approval-gated vs refused must be
+    /// counted separately, the deepest chain depth observed must be
+    /// reported, and a refusal applies a small additional reliability
+    /// penalty beyond raw failure rate.
+    @Test func reliabilitySnapshotRollsUpContinuationChainTelemetry() throws {
+        let provider = AgentProviderProfile(draft: ProviderCatalog.defaultProfiles[0])
+        let now = Date()
+        let succeeded = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.succeeded.rawValue,
+            startedAt: now.addingTimeInterval(-300)
+        )
+        let autoResume = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.failed.rawValue,
+            userFeedback: "Provider reported that the request exceeded the available context window.",
+            startedAt: now.addingTimeInterval(-200),
+            continuationSummary: "Continuation prepared (chain depth 1).",
+            continuationPrompt: "Continue safely.",
+            continuationTriggerCategory: ContinuationTriggerCategory.contextOverflow.rawValue,
+            continuationChainDepth: 1,
+            continuationParentRunID: nil,
+            continuationRequiresApproval: false,
+            continuationPolicyNote: "OpenAI Codex policy prepared resume."
+        )
+        let approvalGated = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.failed.rawValue,
+            userFeedback: "Provider reported a quota or rate-limit failure.",
+            startedAt: now.addingTimeInterval(-150),
+            continuationSummary: "Continuation prepared (chain depth 2).",
+            continuationPrompt: "Continue safely.",
+            continuationTriggerCategory: ContinuationTriggerCategory.quotaOrRateLimit.rawValue,
+            continuationChainDepth: 2,
+            continuationParentRunID: nil,
+            continuationRequiresApproval: true,
+            continuationPolicyNote: "Approval-gated resume; user must tap to retry."
+        )
+        let refused = RunOutcomeRecord(
+            providerID: provider.identifier,
+            status: RunStatus.failed.rawValue,
+            userFeedback: "Provider reported that the request exceeded the available context window.",
+            startedAt: now.addingTimeInterval(-50),
+            continuationTriggerCategory: ContinuationTriggerCategory.contextOverflow.rawValue,
+            continuationChainDepth: 3,
+            continuationRequiresApproval: true,
+            continuationPolicyNote: "Chain depth 4 would exceed policy cap (3)."
+        )
+
+        let snapshots = ProviderReliabilityBuilder.build(
+            providers: [provider],
+            outcomes: [succeeded, autoResume, approvalGated, refused]
+        )
+
+        let snapshot = try #require(snapshots.first)
+        #expect(snapshot.recentRunCount == 4)
+        #expect(snapshot.continuationOfferedRunCount == 3)
+        #expect(snapshot.continuationAutoResumeRunCount == 1)
+        #expect(snapshot.continuationApprovalGatedRunCount == 1)
+        #expect(snapshot.continuationRefusedRunCount == 1)
+        #expect(snapshot.maxContinuationChainDepth == 3)
+        #expect(snapshot.summary.contains("Continuation chains"))
+        // Refusal penalty must drag the reliability score below an
+        // apples-to-apples comparator with identical failure text but
+        // zero continuation telemetry — the only delta the snapshot
+        // adds beyond the Sprint M reliability math is the refusal
+        // penalty, which must be observable.
+        let comparatorOutcomes: [RunOutcomeRecord] = [
+            RunOutcomeRecord(
+                providerID: provider.identifier,
+                status: RunStatus.succeeded.rawValue,
+                startedAt: now.addingTimeInterval(-300)
+            ),
+            RunOutcomeRecord(
+                providerID: provider.identifier,
+                status: RunStatus.failed.rawValue,
+                userFeedback: "Provider reported that the request exceeded the available context window.",
+                startedAt: now.addingTimeInterval(-200)
+            ),
+            RunOutcomeRecord(
+                providerID: provider.identifier,
+                status: RunStatus.failed.rawValue,
+                userFeedback: "Provider reported a quota or rate-limit failure.",
+                startedAt: now.addingTimeInterval(-150)
+            ),
+            RunOutcomeRecord(
+                providerID: provider.identifier,
+                status: RunStatus.failed.rawValue,
+                userFeedback: "Provider reported that the request exceeded the available context window.",
+                startedAt: now.addingTimeInterval(-50)
+            ),
+        ]
+        let comparator = try #require(
+            ProviderReliabilityBuilder.build(providers: [provider], outcomes: comparatorOutcomes).first
+        )
+        #expect(comparator.continuationRefusedRunCount == 0)
+        #expect(snapshot.reliabilityScore < comparator.reliabilityScore)
+    }
+
     @Test func dashboardHeatmapIncludesLatencyAndSuccessMetrics() throws {
         let container = try Self.makeContainer()
         let context = ModelContext(container)
@@ -296,8 +396,9 @@ struct UsageAndPerformanceTests {
         #expect(metricNames.contains("Reliability"))
         #expect(metricNames.contains("Availability"))
         #expect(metricNames.contains("Cost"))
-        // Seven metrics × one provider = seven cells.
-        #expect(cells.count == 7)
+        // Sprint P.1: continuation health is the eighth heatmap metric.
+        #expect(metricNames.contains("Continuation"))
+        #expect(cells.count == 8)
     }
 
     @Test func dashboardProviderFilterKeepsOnlyConfiguredProviders() throws {

@@ -116,6 +116,27 @@ struct ConflictResolutionEngine: Sendable {
             )
         }
 
+        // Sprint Q.1: consult the entity-specific merge policy first.
+        // The policy can produce a deterministic merged payload for safe
+        // fields (preferNonEmpty, preferLatest, concatLines,
+        // stateMachineFavorTerminal, userRatedWinsOverInferred) or a
+        // precise hard-conflict marker naming the offending fields. The
+        // generic Lamport-clock arbitration below is the fallback for
+        // entity types the policy registry doesn't yet know about.
+        if let policy = EntityMergePolicyRegistry.policy(for: local.entityType) {
+            switch EntityMergePolicyEvaluator.evaluate(policy: policy, local: local, remote: remote) {
+            case .merged(let payload, let explanation):
+                return .merged(
+                    payload: payload,
+                    explanation: "\(local.entityType) merge policy: \(explanation)"
+                )
+            case .hardConflict(_, let reason):
+                return .requiresReview(reason: "\(local.entityType) merge policy: \(reason)")
+            case .notApplicable:
+                break
+            }
+        }
+
         if local.lamportClock == remote.lamportClock && local.payload != remote.payload {
             return .requiresReview(reason: "Concurrent non-commutative edits require review.")
         }

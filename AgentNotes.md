@@ -11,7 +11,150 @@ Created: May 5, 2026
 - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
+## Handoff (2026-05-25, Anthropic Claude → next agent)
+
+Read this first. Repo state on disk diverges from `origin/main` — the
+push has not happened. Everything below is uncommitted.
+
+Last pushed commit on `origin/main`: `e05ab7b` (Sprint N closeout).
+Working tree adds Sprint O.1–O.4, Sprint P.1–P.2, and Sprint Q.1
+(~1,584 insertions / 65 deletions across 20 modified files + 6 new
+files). All changes were made in the active iCloud root.
+
+Why the commit isn't pushed yet: this sandbox cannot `rm` files inside
+`.git/` on the iCloud bind mount, so `git commit` cannot run from here.
+The complete commit + push command is packaged as a one-shot script in
+the Cowork outputs folder; the user must run it on their Mac:
+
+    bash "<outputs>/commit_sprint_o.sh"
+
+It runs from `"/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer"`,
+drops any stale `.git/index.lock`, stages every modified + new file
+listed below, commits with a structured Sprint O + P + Q.1 message,
+and `git push origin main`.
+
+Files in this handoff bundle:
+  Modified:
+    - Agenic Load-Balancer/Agenic_Load_BalancerApp.swift
+    - Agenic Load-Balancer/ContentView.swift
+    - Agenic Load-Balancer/Models/AgenicModels.swift
+    - Agenic Load-Balancer/Services/ConflictResolutionEngine.swift
+    - Agenic Load-Balancer/Services/CoordinationAndSync.swift
+    - Agenic Load-Balancer/Services/PerformanceHistory.swift
+    - Agenic Load-Balancer/Services/RoutingEngine.swift
+    - Agenic Load-Balancer/Services/RunDispatcher.swift
+    - Agenic Load-Balancer/Services/SnapshotArchive.swift
+    - Agenic Load-Balancer/Services/TokenBudgeting.swift
+    - Agenic Load-BalancerTests/ConflictResolutionEngineTests.swift
+    - Agenic Load-BalancerTests/ReleaseReadinessTests.swift
+    - Agenic Load-BalancerTests/UsageAndPerformanceTests.swift
+    - Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests.swift
+    - AgentNotes.md, AgentPlan.md, ReleaseReadiness.md
+    - script/release_candidate.sh
+    - script/two_mac_cloudkit_drill.sh
+    - script/visual_regression.sh
+  New:
+    - Agenic Load-Balancer/Services/EntityMergePolicy.swift
+    - Agenic Load-Balancer/Services/ProviderContinuationPolicy.swift
+    - Agenic Load-Balancer/Services/ProviderSetupBadge.swift
+    - Agenic Load-Balancer/Services/WorkspaceSourceSummarizer.swift
+    - Agenic Load-BalancerTests/ProviderContinuationPolicyTests.swift
+    - Agenic Load-BalancerTests/ProviderSetupBadgeTests.swift
+
+Validation runs the user must execute on the developer Mac (each entry
+below has the exact xcodebuild invocation in its Active Work block).
+Capture the xcresult paths back into those blocks once green and flip
+the entries from `[in-progress]` to `[checkpointed]`:
+  1. Focused test suite covering Sprint O.1, O.3, O.4, P.1, P.2, Q.1.
+  2. `script/visual_regression.sh` for the expanded Sprint L + N + O matrices.
+  3. `script/live_maturity_check.sh` to refresh the live-maturity report.
+  4. Notarization unblock: `script/release_candidate.sh --notary-runbook`,
+     install the profile, then `--notarize-only --staple` against the
+     existing signed ZIP at `/Volumes/USB256/Xcode_Projects_Storage/Agenic_ReleaseManaged_20260525_121347`.
+  5. Solaris971 drill: `script/two_mac_cloudkit_drill.sh --remote-login-runbook`
+     (or `--peer-bundle ~/Desktop/agenic-peer-bundle` for the offline lane),
+     then rerun the drill, then `--manual --verify-peer-evidence <peer manifest>`.
+
+Suggested next sprints (all pure code, no external creds needed):
+  - Sprint Q.2: visual matrices for Conflict Center recovery, the run-sheet
+    continuation panel, and the new provider-setup badge strip; plus an
+    in-app "Re-probe" button that consumes the freshness badge remediation.
+  - Sprint Q.3: autonomous loop scheduler — persist multi-sprint goals
+    with bounded sub-sprints and validation gates between them.
+  - Sprint Q.4: actual restore-into-new-copy workflow (clone target into
+    sibling directory + scoped SwiftData row copy + AgentNotes divergence
+    note + Conflict Center action wiring).
+
+Coordination rule reminder: don't write new data to the OneDrive checkout
+at `/Users/zincoverde/Library/CloudStorage/OneDrive-Personal/4_XcodeProjects/Agenic Load-Balancer`.
+The canonical root is the iCloud path above. The OneDrive copy is stale.
+
 ## Active Work
+- [in-progress] Sprint Q.1 entity-specific merge policies
+  Assignee: Anthropic Claude
+  Detail: Added `Services/EntityMergePolicy.swift` with `FieldMergeRule` (preferNonEmpty, preferLatest, concatLines, immutableHardConflict, stateMachineFavorTerminal, userRatedWinsOverInferred), `EntityMergePolicy` (per-entity field rule map + audit commutativity flag), `EntityMergePolicyRegistry` (canonical entity type names, `AgentProviderProfile` / `AutonomyTaskRecord` / `RunOutcomeRecord` rules, terminal-status and user-rating value sets), and `EntityMergePolicyEvaluator` (returns `.merged`/`.hardConflict`/`.notApplicable`). Wired into `ConflictResolutionEngine.resolve` before the generic Lamport fallback. The audit special case still wins for `appendAudit` operations regardless of entity type. Six new tests in `ConflictResolutionEngineTests` cover provider descriptive-field merge + immutable identity hard-conflict, autonomy task terminal-state preference + dual-terminal hard-conflict, run outcome user-rating preservation + append-only feedback + immutable build-result hard-conflict, and the unchanged generic-Lamport fallback for unknown entity types.
+  Run: local Sprint Q.1 implementation turn on May 25, 2026
+  Commit: pending (bundled with Sprint O + P)
+  Conflict: none
+  Validation: Swift code review only in this sandbox; existing Sprint E/K conflict tests still use the pre-canonical lowercase entity strings ("task", "audit", "autonomyTask") which deliberately fall through to the Lamport fallback so the existing drill expectations are unchanged. Focused xcodebuild test runs must execute on the Mac per the runbook below.
+  Pending validation runs on the developer Mac:
+    - `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ_Tests_$(date +%Y%m%d_%H%M%S)" \
+        xcodebuild test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" \
+        -destination "platform=macOS,arch=arm64" \
+        -derivedDataPath "$RUN_ROOT/DerivedData" -resultBundlePath "$RUN_ROOT/Results/SprintQ.xcresult" \
+        -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests" \
+        -only-testing:"Agenic Load-BalancerTests/UsageAndPerformanceTests" \
+        -only-testing:"Agenic Load-BalancerTests/ProviderSetupBadgeTests" \
+        -only-testing:"Agenic Load-BalancerTests/ProviderContinuationPolicyTests" \
+        -only-testing:"Agenic Load-BalancerTests/ReleaseReadinessTests"`
+
+- [in-progress] Sprint P live-maturity follow-on (continuation telemetry rollup + provider setup status badges)
+  Assignee: Anthropic Claude
+  Detail: Two Sprint P slices building on Sprint O.1:
+    P.1 — `ProviderReliabilitySnapshot` gained additive continuation-chain telemetry: `continuationOfferedRunCount`, `continuationAutoResumeRunCount`, `continuationApprovalGatedRunCount`, `continuationRefusedRunCount`, and `maxContinuationChainDepth`. `ProviderReliabilityBuilder.build` reads `RunOutcomeRecord.continuation*` fields, classifies refusals via policy-note text, applies a small (~6%) refusal penalty on top of the existing reliability math, and folds the auto/approval/refused split into the summary string. `DashboardMetricFactory.heatmapCells` now exposes a "Continuation" cell rendered green/teal/red based on the refusal-vs-auto-resume ratio. `UsageAndPerformanceTests` covers the rollup math, the apples-to-apples comparator demonstrating the refusal penalty, and the new 8th heatmap metric.
+    P.2 — New `Services/ProviderSetupBadge.swift` derives four deterministic badges per provider (binary / auth / credentials / freshness) plus a rolled-up `overallTone` (attention < warning < neutral < healthy). Rules consult `AgentProviderProfile`, `ProviderSetupRecord`, `KeychainReferenceRecord`, and the existing `ProviderAuthRecipe` to surface install commands, env-var hints, and re-probe nudges. `ProviderSetupView` queries setups + keychain refs and renders the badges through a new `ProviderSetupBadgeStrip` chip row with tone-driven colors, system-image icons, hover help, and accessibility identifiers `ProviderRow.<id>.Badge.<kind>`. The wizard's existing setup sheet is unchanged. New `ProviderSetupBadgeTests` covers all four badge rules, the tone ordering, and the rollup logic.
+  Run: local Sprint P implementation turn on May 25, 2026
+  Commit: pending (Anthropic Claude — Sprint P.x closeout commit, bundled with Sprint O if not yet pushed)
+  Conflict: none
+  Validation: no behaviour change for callers that don't read the new badge fields. Build/test must run on the Mac via the runbook below.
+  Pending validation runs on the developer Mac (capture xcresult paths back into this entry once green):
+    - `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintP_Tests_$(date +%Y%m%d_%H%M%S)" \
+        xcodebuild test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" \
+        -destination "platform=macOS,arch=arm64" \
+        -derivedDataPath "$RUN_ROOT/DerivedData" -resultBundlePath "$RUN_ROOT/Results/SprintP.xcresult" \
+        -only-testing:"Agenic Load-BalancerTests/UsageAndPerformanceTests" \
+        -only-testing:"Agenic Load-BalancerTests/ProviderSetupBadgeTests" \
+        -only-testing:"Agenic Load-BalancerTests/ProviderContinuationPolicyTests" \
+        -only-testing:"Agenic Load-BalancerTests/ReleaseReadinessTests"`
+    - Then the Sprint O visual regression (Sprint P.2 badge strip is captured by the existing `testSprintOProviderSetupEdgeCaseSnapshotMatrix`).
+
+- [in-progress] Sprint O live-maturity expansion (continuation policy + visual matrix + notarization resume + Solaris971 drill prep)
+  Assignee: Anthropic Claude
+  Detail: Implemented four Sprint O slices on top of `e05ab7b`:
+    O.1 — Added `Services/ProviderContinuationPolicy.swift` (per-provider eligibility, chain-depth caps, approval-gating, resume notes), `Services/WorkspaceSourceSummarizer.swift` (deterministic head/tail excerpts of recently modified source files inside the project root, allowlisted extensions, binary/skip-dirs guard, sha-stable ordering), and `TokenBudgetEstimator.prepareContinuation` (returns `ContinuationDecision.prepared`/`.notEligible` consulted by `RunDispatcher.finalize`). Extended `RunPlan` with optional `continuationContext`, `RunOutcomeRecord` with additive continuation-chain fields (`continuationTriggerCategory`, `continuationChainDepth`, `continuationParentRunID`, `continuationRequiresApproval`, `continuationWorkspaceExcerptCount`, `continuationPolicyNote`), and `RunOutcomeDTO` to round-trip them additively. The outcome sheet's continuation panel now shows depth/trigger/approval/workspace-excerpt chips. Added `ProviderContinuationPolicyTests` covering Codex/Foundation Models/XcodeBuildMCP/unknown policies, the failure classifier, ineligible-trigger and over-cap refusals, the Codex auto-resume happy path, and the workspace summarizer's binary/skip-dirs guards.
+    O.2 — `Agenic_Load_BalancerApp` honours `--ui-appearance light|dark`, `--ui-maximize`, and `--ui-provider-edge-cases`; the UI fixture bootstrap optionally seeds a missing-binary provider, a needs-token provider, and a failed run outcome with continuation chain metadata. New UI tests: `testSprintOMaximizedWindowSnapshotMatrix`, `testSprintODarkAppearanceSnapshotMatrix`, `testSprintOLightAppearanceSnapshotMatrix`, `testSprintOProviderSetupEdgeCaseSnapshotMatrix`, `testSprintORunSheetSuccessFailureSnapshotMatrix`. `script/visual_regression.sh` runs the full matrix.
+    O.3 — `script/release_candidate.sh` adds `--notarize-only`, `--staple-only`, `--assess`, `--use-existing-package`, and `--notary-runbook`; `ReleaseReadiness.md` documents the resume path. The runbook prints both notarytool credential lanes (App Store Connect API key, Apple ID + app-specific password) without ever asking for the secret on the command line. `ReleaseReadinessTests` asserts the new flags and Sprint O.2 matrix names stay wired.
+    O.4 — `script/two_mac_cloudkit_drill.sh` adds `--peer-bundle` (writes a self-contained `run-peer.sh` + README + drill-id pin), `--verify-peer-evidence` (sha256 over the returned manifest, recorded next to the report), `--resume` (reuses the existing local primary manifest), and `--remote-login-runbook` (Solaris971 Remote Login setup + fallback to USB-stick peer bundle). `ReleaseReadinessTests` asserts the new flags stay wired.
+  Run: local Sprint O implementation turn on May 25, 2026
+  Commit: pending (Anthropic Claude — Sprint O.x closeout commit)
+  Conflict: none
+  Validation: `bash -n` clean across `script/release_candidate.sh script/release_preflight.sh script/visual_regression.sh script/live_maturity_check.sh script/provider_probe_maintenance.sh script/foundation_models_check.sh script/cloudkit_conflict_drill.sh script/two_mac_cloudkit_drill.sh script/autonomy_continuation_drill.sh script/provider_probe_report.sh`. `script/release_candidate.sh --help`, `script/release_candidate.sh --notary-runbook`, `script/two_mac_cloudkit_drill.sh --help`, and `script/two_mac_cloudkit_drill.sh --remote-login-runbook` printed the expected contracts. `RUN_ROOT=<tmp> script/two_mac_cloudkit_drill.sh --manual --peer-bundle <tmp/bundle> --drill-id test-drill-id` produced the report and the peer bundle (`run-peer.sh`, `run-peer.command`, `drill-id.txt`, `README.md`) without contacting Solaris971. Focused Swift test runs and visual regression must still be executed on the Mac per the runbook below.
+  Pending validation runs on the developer Mac (capture xcresult paths into this entry once each is green):
+    - `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintO_Tests_$(date +%Y%m%d_%H%M%S)" \
+        xcodebuild test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" \
+        -destination "platform=macOS,arch=arm64" \
+        -derivedDataPath "$RUN_ROOT/DerivedData" -resultBundlePath "$RUN_ROOT/Results/ReleaseAndContinuation.xcresult" \
+        -only-testing:"Agenic Load-BalancerTests/ReleaseReadinessTests" \
+        -only-testing:"Agenic Load-BalancerTests/TokenBudgetTests" \
+        -only-testing:"Agenic Load-BalancerTests/ProviderContinuationPolicyTests" \
+        -only-testing:"Agenic Load-BalancerTests/SnapshotPipelineTests"`
+    - `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintO_Visual_$(date +%Y%m%d_%H%M%S)" \
+        script/visual_regression.sh`
+    - After the focused tests are green: `RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintO_LiveMaturity_$(date +%Y%m%d_%H%M%S)" \
+        script/live_maturity_check.sh` to keep the live-maturity report current.
+    - Notarization unblock: install a notarytool profile per `script/release_candidate.sh --notary-runbook`, then `NOTARY_PROFILE=agenic-notary RUN_ROOT=/Volumes/USB256/Xcode_Projects_Storage/Agenic_ReleaseManaged_20260525_121347 script/release_candidate.sh --notarize-only --staple`.
+    - Solaris971 drill: `script/two_mac_cloudkit_drill.sh --remote-login-runbook` (or `--peer-bundle ~/Desktop/agenic-peer-bundle` for the offline lane), then rerun `script/two_mac_cloudkit_drill.sh` (or `--manual --verify-peer-evidence <peer manifest>` if the peer ran from the bundle).
+
 - [checkpointed] Sprint N physical live-release validation
   Assignee: OpenAI Codex
   Detail: Added physical live-release validation tooling for the remaining live queue. `script/two_mac_cloudkit_drill.sh` coordinates Solaris971 peer drills with SSH/manual modes and refuses to mark physical completion without peer evidence. `script/live_maturity_check.sh --two-mac-cloudkit` now includes that path, `script/visual_regression.sh` runs both Sprint L and expanded Sprint N matrices, and `script/release_candidate.sh` can attempt Xcode-managed Developer ID archive/export with `ALLOW_XCODE_MANAGED_SIGNING=1` plus `ALLOW_PROVISIONING_UPDATES=1`.

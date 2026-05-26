@@ -723,6 +723,17 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
     let continuationSummary: String?
     let continuationPrompt: String?
     let transcriptSegmentCount: Int?
+    /// Sprint O.1: continuation chain metadata. All optional/defaulted so
+    /// archives written before Sprint O.1 still decode and so peers that
+    /// haven't received the Sprint O.1 build keep working on the existing
+    /// fields. `containsContinuationChainFields` lets snapshot tests
+    /// distinguish "field is genuinely absent" from "field decoded as nil".
+    let continuationTriggerCategory: String?
+    let continuationChainDepth: Int?
+    let continuationParentRunID: String?
+    let continuationRequiresApproval: Bool?
+    let continuationWorkspaceExcerptCount: Int?
+    let continuationPolicyNote: String?
 
     init(from record: RunOutcomeRecord) {
         identifier = record.identifier
@@ -748,6 +759,12 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
         continuationSummary = record.continuationSummary
         continuationPrompt = record.continuationPrompt
         transcriptSegmentCount = record.transcriptSegmentCount
+        continuationTriggerCategory = record.continuationTriggerCategory
+        continuationChainDepth = record.continuationChainDepth
+        continuationParentRunID = record.continuationParentRunID
+        continuationRequiresApproval = record.continuationRequiresApproval
+        continuationWorkspaceExcerptCount = record.continuationWorkspaceExcerptCount
+        continuationPolicyNote = record.continuationPolicyNote
     }
 
     func makeRecord() -> RunOutcomeRecord {
@@ -774,7 +791,13 @@ struct RunOutcomeDTO: Sendable, Codable, Hashable, Identifiable {
             contextBudgetSummary: contextBudgetSummary,
             continuationSummary: continuationSummary,
             continuationPrompt: continuationPrompt,
-            transcriptSegmentCount: transcriptSegmentCount ?? 0
+            transcriptSegmentCount: transcriptSegmentCount ?? 0,
+            continuationTriggerCategory: continuationTriggerCategory,
+            continuationChainDepth: continuationChainDepth ?? 0,
+            continuationParentRunID: continuationParentRunID,
+            continuationRequiresApproval: continuationRequiresApproval ?? true,
+            continuationWorkspaceExcerptCount: continuationWorkspaceExcerptCount ?? 0,
+            continuationPolicyNote: continuationPolicyNote
         )
     }
 }

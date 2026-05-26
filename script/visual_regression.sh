@@ -60,7 +60,12 @@ xcodebuild test \
   SYMROOT="$RUN_ROOT/Build/Products" \
   SHARED_PRECOMPS_DIR="$RUN_ROOT/Build/PrecompiledHeaders" \
   -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintLVisualRegressionSnapshotMatrix" \
-  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintNExpandedVisualRegressionSnapshotMatrix"
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintNExpandedVisualRegressionSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintOMaximizedWindowSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintODarkAppearanceSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintOLightAppearanceSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintOProviderSetupEdgeCaseSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintORunSheetSuccessFailureSnapshotMatrix"
 
 if [[ ! -n "$(find "$VISUAL_DIR" -maxdepth 1 -type f -print -quit 2>/dev/null)" && -d "$FALLBACK_VISUAL_DIR" ]]; then
   cp -R "$FALLBACK_VISUAL_DIR/." "$VISUAL_DIR/"

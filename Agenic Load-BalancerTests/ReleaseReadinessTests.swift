@@ -151,6 +151,15 @@ struct ReleaseReadinessTests {
         #expect(twoMacCloudKitDrill.contains("Solaris971.local"))
         #expect(twoMacCloudKitDrill.contains("--require-ssh"))
         #expect(twoMacCloudKitDrill.contains("Remote Login/SSH did not capture peer evidence"))
+        // Sprint O.4: peer bundle, sha256 verification, resume, and the
+        // Remote Login runbook printer must stay wired.
+        #expect(twoMacCloudKitDrill.contains("--peer-bundle"))
+        #expect(twoMacCloudKitDrill.contains("--verify-peer-evidence"))
+        #expect(twoMacCloudKitDrill.contains("--resume"))
+        #expect(twoMacCloudKitDrill.contains("--remote-login-runbook"))
+        #expect(twoMacCloudKitDrill.contains("Sprint O.4 — Solaris971 Remote Login / SSH enablement runbook"))
+        #expect(twoMacCloudKitDrill.contains("shasum -a 256"))
+        #expect(twoMacCloudKitDrill.contains("run-peer.sh"))
 
         #expect(autonomyDrill.contains("AutonomyTrustLane"))
         #expect(autonomyDrill.contains("prepareRun"))
@@ -160,8 +169,23 @@ struct ReleaseReadinessTests {
         #expect(releaseCandidate.contains("-allowProvisioningUpdates"))
         #expect(releaseCandidate.contains("Developer ID Application"))
 
+        // Sprint O.3: notarization resume flags + runbook stay wired.
+        #expect(releaseCandidate.contains("--notarize-only"))
+        #expect(releaseCandidate.contains("--staple-only"))
+        #expect(releaseCandidate.contains("--assess"))
+        #expect(releaseCandidate.contains("--use-existing-package"))
+        #expect(releaseCandidate.contains("--notary-runbook"))
+        #expect(releaseCandidate.contains("Sprint O.3 — notarytool profile setup runbook"))
+        #expect(releaseCandidate.contains("reuse_existing_package"))
+        #expect(releaseCandidate.contains("assess_app"))
+
         #expect(visualRegression.contains("xcresult attachments are authoritative"))
         #expect(visualRegression.contains("testSprintLVisualRegressionSnapshotMatrix"))
         #expect(visualRegression.contains("testSprintNExpandedVisualRegressionSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintOMaximizedWindowSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintODarkAppearanceSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintOLightAppearanceSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintOProviderSetupEdgeCaseSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintORunSheetSuccessFailureSnapshotMatrix"))
     }
 }

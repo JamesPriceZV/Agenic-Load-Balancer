@@ -325,6 +325,292 @@ struct ConflictResolutionEngineTests {
         #expect(report.createdSnapshotIDs == ["drill-unit-snapshot"])
     }
 
+    // MARK: - Sprint Q.1: entity-specific merge policies
+
+    @Test func providerProfilePolicyMergesDescriptiveFieldsAndPrefersLatestState() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "openai.codex",
+            entityType: EntityMergePolicyRegistry.providerProfile,
+            operationKind: "updateProfile",
+            lamportClock: 5,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "openai.codex",
+                "providerFamily": "OpenAI",
+                "binaryName": "codex",
+                "capabilities": "",
+                "installedState": "missing",
+                "authState": "unauthenticated",
+                "safetyNotes": "Existing local note",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "openai.codex",
+            entityType: EntityMergePolicyRegistry.providerProfile,
+            operationKind: "updateProfile",
+            lamportClock: 7,
+            machineID: "mac-b",
+            payload: [
+                "identifier": "openai.codex",
+                "providerFamily": "OpenAI",
+                "binaryName": "codex",
+                "capabilities": "implementation, repair",
+                "installedState": "available",
+                "authState": "authenticated",
+                "safetyNotes": "Existing local note",
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        switch outcome {
+        case .merged(let payload, let explanation):
+            #expect(payload["capabilities"] == "implementation, repair")
+            #expect(payload["installedState"] == "available")  // higher Lamport wins
+            #expect(payload["authState"] == "authenticated")
+            #expect(payload["safetyNotes"] == "Existing local note")
+            #expect(explanation.contains("AgentProviderProfile merge policy"))
+        case .requiresReview(let reason):
+            Issue.record("Expected merge but got requiresReview: \(reason)")
+        }
+    }
+
+    @Test func providerProfilePolicyHardConflictsOnImmutableIdentityChange() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "openai.codex",
+            entityType: EntityMergePolicyRegistry.providerProfile,
+            operationKind: "updateProfile",
+            lamportClock: 5,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "openai.codex",
+                "providerFamily": "OpenAI",
+                "binaryName": "codex",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "openai.codex",
+            entityType: EntityMergePolicyRegistry.providerProfile,
+            operationKind: "updateProfile",
+            lamportClock: 6,
+            machineID: "mac-b",
+            payload: [
+                "identifier": "openai.codex",
+                "providerFamily": "OpenAI",
+                "binaryName": "codex-next",  // immutable field changed → hard conflict
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .requiresReview(let reason) = outcome {
+            #expect(reason.contains("binaryName"))
+            #expect(reason.contains("AgentProviderProfile merge policy"))
+        } else {
+            Issue.record("Expected hard conflict on immutable binaryName change.")
+        }
+    }
+
+    @Test func autonomyTaskPolicyKeepsTerminalStatusOverInProgress() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "task-99",
+            entityType: EntityMergePolicyRegistry.autonomyTask,
+            operationKind: "setStatus",
+            lamportClock: 5,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "task-99",
+                "goalID": "goal-1",
+                "status": "succeeded",
+                "detail": "Local task summary",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "task-99",
+            entityType: EntityMergePolicyRegistry.autonomyTask,
+            operationKind: "setStatus",
+            lamportClock: 8, // newer clock but non-terminal
+            machineID: "mac-b",
+            payload: [
+                "identifier": "task-99",
+                "goalID": "goal-1",
+                "status": "inProgress",
+                "detail": "Local task summary",
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .merged(let payload, _) = outcome {
+            #expect(payload["status"] == "succeeded")
+        } else {
+            Issue.record("Expected terminal status to win over non-terminal regardless of clock.")
+        }
+    }
+
+    @Test func autonomyTaskPolicyHardConflictsWhenBothStatusesAreTerminal() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "task-99",
+            entityType: EntityMergePolicyRegistry.autonomyTask,
+            operationKind: "setStatus",
+            lamportClock: 5,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "task-99",
+                "goalID": "goal-1",
+                "status": "succeeded",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "task-99",
+            entityType: EntityMergePolicyRegistry.autonomyTask,
+            operationKind: "setStatus",
+            lamportClock: 6,
+            machineID: "mac-b",
+            payload: [
+                "identifier": "task-99",
+                "goalID": "goal-1",
+                "status": "failed",
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .requiresReview(let reason) = outcome {
+            #expect(reason.contains("status"))
+            #expect(reason.contains("AutonomyTaskRecord merge policy"))
+        } else {
+            Issue.record("Expected hard conflict when both sides hold a different terminal status.")
+        }
+    }
+
+    @Test func runOutcomePolicyKeepsUserRatingAndConcatsFeedbackLines() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "run-1",
+            entityType: EntityMergePolicyRegistry.runOutcome,
+            operationKind: "updateOutcome",
+            lamportClock: 4,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "run-1",
+                "runID": "run-1",
+                "providerID": "openai.codex",
+                "buildResult": "exit0",
+                "accuracyRating": "correct",
+                "userFeedback": "Worked locally.",
+                "status": "succeeded",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "run-1",
+            entityType: EntityMergePolicyRegistry.runOutcome,
+            operationKind: "updateOutcome",
+            lamportClock: 6,
+            machineID: "mac-b",
+            payload: [
+                "identifier": "run-1",
+                "runID": "run-1",
+                "providerID": "openai.codex",
+                "buildResult": "exit0",
+                "accuracyRating": "unrated",
+                "userFeedback": "Worked from peer too.",
+                "status": "succeeded",
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .merged(let payload, _) = outcome {
+            #expect(payload["accuracyRating"] == "correct")
+            #expect(payload["userFeedback"]?.contains("Worked locally.") == true)
+            #expect(payload["userFeedback"]?.contains("Worked from peer too.") == true)
+            #expect(payload["status"] == "succeeded")
+        } else {
+            Issue.record("Expected merge to preserve user rating and concat feedback lines.")
+        }
+    }
+
+    @Test func runOutcomePolicyHardConflictsOnDivergentBuildResult() {
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "run-1",
+            entityType: EntityMergePolicyRegistry.runOutcome,
+            operationKind: "updateOutcome",
+            lamportClock: 5,
+            machineID: "mac-a",
+            payload: [
+                "identifier": "run-1",
+                "runID": "run-1",
+                "providerID": "openai.codex",
+                "buildResult": "exit0",
+            ]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "run-1",
+            entityType: EntityMergePolicyRegistry.runOutcome,
+            operationKind: "updateOutcome",
+            lamportClock: 6,
+            machineID: "mac-b",
+            payload: [
+                "identifier": "run-1",
+                "runID": "run-1",
+                "providerID": "openai.codex",
+                "buildResult": "exit1",
+            ]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .requiresReview(let reason) = outcome {
+            #expect(reason.contains("buildResult"))
+        } else {
+            Issue.record("Expected hard conflict on divergent buildResult.")
+        }
+    }
+
+    @Test func unknownEntityTypeFallsBackToGenericLamportArbitration() {
+        // A novel entity type the policy registry doesn't know about
+        // must keep working under the pre-Sprint-Q.1 Lamport rule.
+        let local = OperationEnvelope(
+            identifier: "l",
+            entityID: "novel-1",
+            entityType: "NovelEntityType",
+            operationKind: "setSomething",
+            lamportClock: 7,
+            machineID: "mac-a",
+            payload: ["field": "local"]
+        )
+        let remote = OperationEnvelope(
+            identifier: "r",
+            entityID: "novel-1",
+            entityType: "NovelEntityType",
+            operationKind: "setSomething",
+            lamportClock: 9,
+            machineID: "mac-b",
+            payload: ["field": "remote"]
+        )
+
+        let outcome = ConflictResolutionEngine().resolve(local: local, remote: remote)
+
+        if case .merged(let payload, let explanation) = outcome {
+            #expect(payload["field"] == "remote")
+            #expect(explanation.contains("Remote operation has the newer Lamport clock."))
+        } else {
+            Issue.record("Expected generic Lamport fallback for an unknown entity type.")
+        }
+    }
+
     @MainActor
     @Test func conflictRecoveryDrillPersistsSyntheticRecordsAndSnapshotAnchors() throws {
         let container = try Self.makeContainer()

@@ -188,10 +188,78 @@ final class Agenic_Load_BalancerUITests: XCTestCase {
         }
     }
 
+    // MARK: Sprint O.2 expanded matrices
+
     @MainActor
-    private func launchAgenic() {
+    func testSprintOMaximizedWindowSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-maximize"])
+        try assertVisualSnapshot(named: "dashboard-maximized", baseline: .maximized)
+
+        tap(identifier: "Sidebar.promptRouter")
+        XCTAssertTrue(element("Screen.PromptRouter").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "prompt-router-maximized", baseline: .maximized)
+
+        tap(identifier: "Sidebar.history")
+        XCTAssertTrue(element("Screen.History").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "history-maximized", baseline: .maximized)
+    }
+
+    @MainActor
+    func testSprintODarkAppearanceSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-appearance", "dark"])
+        try assertVisualSnapshot(named: "dashboard-dark", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.promptRouter")
+        XCTAssertTrue(element("Screen.PromptRouter").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "prompt-router-dark", baseline: .contentDense)
+
+        tap(identifier: "Toolbar.Settings")
+        XCTAssertTrue(element("Sheet.Settings").waitForExistence(timeout: 5))
+        tap(identifier: "Settings.Tab.tools")
+        XCTAssertTrue(element("Settings.Toggle.allowToolCalling").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "settings-tools-dark", baseline: .settingsSheet)
+        tap(identifier: "Settings.BackToApp")
+        XCTAssertTrue(element("Sheet.Settings").waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSprintOLightAppearanceSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-appearance", "light"])
+        try assertVisualSnapshot(named: "dashboard-light", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.promptRouter")
+        XCTAssertTrue(element("Screen.PromptRouter").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "prompt-router-light", baseline: .contentDense)
+
+        tap(identifier: "Toolbar.Settings")
+        XCTAssertTrue(element("Sheet.Settings").waitForExistence(timeout: 5))
+        tap(identifier: "Settings.Tab.tools")
+        XCTAssertTrue(element("Settings.Toggle.allowToolCalling").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "settings-tools-light", baseline: .settingsSheet)
+        tap(identifier: "Settings.BackToApp")
+        XCTAssertTrue(element("Sheet.Settings").waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSprintOProviderSetupEdgeCaseSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-provider-edge-cases"])
+        tap(identifier: "Sidebar.providers")
+        XCTAssertTrue(element("Screen.Providers").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "providers-edge-cases", baseline: .contentDense)
+    }
+
+    @MainActor
+    func testSprintORunSheetSuccessFailureSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-provider-edge-cases"])
+        tap(identifier: "Sidebar.history")
+        XCTAssertTrue(element("Screen.History").waitForExistence(timeout: 5))
+        try assertVisualSnapshot(named: "history-success-and-failure", baseline: .contentDense)
+    }
+
+    @MainActor
+    private func launchAgenic(extraArguments: [String] = []) {
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
+        app.launchArguments = ["--uitesting"] + extraArguments
         app.launch()
         app.activate()
         if !element("Screen.Dashboard").waitForExistence(timeout: 3) {
@@ -386,6 +454,20 @@ private struct VisualSnapshotBaseline {
         minimumAverageNeighborDelta: 0.004,
         minimumMeanLuminance: 0.03,
         maximumMeanLuminance: 0.75
+    )
+
+    /// Sprint O.2: looser bound on mean luminance because a maximized
+    /// window includes a lot of background chrome, but the width/height
+    /// baseline is raised so we catch regressions where the window
+    /// silently shrinks back to its idealWidth.
+    static let maximized = VisualSnapshotBaseline(
+        minimumWidth: 1_100,
+        minimumHeight: 700,
+        minimumColorBuckets: 12,
+        minimumLuminanceStandardDeviation: 0.025,
+        minimumAverageNeighborDelta: 0.004,
+        minimumMeanLuminance: 0.02,
+        maximumMeanLuminance: 0.9
     )
 }
 

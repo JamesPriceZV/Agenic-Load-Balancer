@@ -76,6 +76,32 @@ enum AppBootstrapper {
             provider.updatedAt = now
         }
 
+        // Sprint O.2 (opt-in): force one provider into a missing-binary
+        // state and another into a failed-auth state so the providers
+        // catalog snapshot has both healthy and unhealthy rows. Only
+        // applied when the launch arg explicitly asks for it so existing
+        // UI tests stay byte-identical.
+        if AgenicUITestingOptions.includesProviderEdgeCases {
+            let providersByIndex = providers
+            if providersByIndex.count > 5 {
+                let missingProvider = providersByIndex[4]
+                missingProvider.installedState = ProviderAvailabilityState.missing.rawValue
+                missingProvider.authState = ProviderAuthState.unauthenticated.rawValue
+                missingProvider.lastDetectedVersion = nil
+                missingProvider.lastHealthCheckAt = now
+                missingProvider.isEnabled = true
+                missingProvider.updatedAt = now
+
+                let failingAuthProvider = providersByIndex[5]
+                failingAuthProvider.installedState = ProviderAvailabilityState.available.rawValue
+                failingAuthProvider.authState = ProviderAuthState.needsToken.rawValue
+                failingAuthProvider.lastDetectedVersion = "uitest"
+                failingAuthProvider.lastHealthCheckAt = now
+                failingAuthProvider.isEnabled = true
+                failingAuthProvider.updatedAt = now
+            }
+        }
+
         var projects = try context.fetch(FetchDescriptor<AgentProject>())
         if !projects.contains(where: { $0.identifier == "uitest-integrity-evaluator" }) {
             context.insert(
@@ -153,6 +179,39 @@ enum AppBootstrapper {
                     startedAt: now.addingTimeInterval(-1_800),
                     endedAt: now.addingTimeInterval(-1_740),
                     durationSeconds: 60
+                )
+            )
+        }
+        // Sprint O.2 (opt-in): a deterministic failed-run outcome with
+        // continuation chain metadata so the run-sheet success/failure
+        // matrix has both states to capture. Only added when the edge
+        // case launch arg is present so existing Sprint G/L/N matrices
+        // remain byte-identical.
+        if AgenicUITestingOptions.includesProviderEdgeCases,
+           !outcomes.contains(where: { $0.runID == "UITEST-RUN-FAILED" }),
+           seededProjectIDs.contains("uitest-integrity-evaluator") {
+            context.insert(
+                RunOutcomeRecord(
+                    runID: "UITEST-RUN-FAILED",
+                    providerID: providers.first?.identifier ?? "codex-cli",
+                    projectID: "uitest-integrity-evaluator",
+                    status: RunStatus.failed.rawValue,
+                    accuracyRating: AccuracyRating.unrated.rawValue,
+                    buildResult: "exit1",
+                    userFeedback: "Provider reported that the request exceeded the available context window.",
+                    startedAt: now.addingTimeInterval(-2_400),
+                    endedAt: now.addingTimeInterval(-2_280),
+                    durationSeconds: 120,
+                    contextBudgetSummary: "Over limit (estimated 134,000 input tokens).",
+                    continuationSummary: "Continuation prompt prepared for the next approval-gated resume.",
+                    continuationPrompt: "Continue the previous Implementation run safely. Original goal: keep autonomy bounded.",
+                    transcriptSegmentCount: 2,
+                    continuationTriggerCategory: ContinuationTriggerCategory.contextOverflow.rawValue,
+                    continuationChainDepth: 1,
+                    continuationParentRunID: "UITEST-RUN-SUCCEEDED",
+                    continuationRequiresApproval: true,
+                    continuationWorkspaceExcerptCount: 3,
+                    continuationPolicyNote: "UI fixture continuation evidence."
                 )
             )
         }

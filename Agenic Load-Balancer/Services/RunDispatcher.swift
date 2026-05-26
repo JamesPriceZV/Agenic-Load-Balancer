@@ -35,6 +35,10 @@ struct RunPlan: Sendable {
     let allowFilesystemWrites: Bool
     let contextCompactionEnabled: Bool
     let contextCompactionThresholdTokens: Int
+    /// Sprint O.1: optional handle to the parent run when this plan is
+    /// itself the resume of a continuation chain. Default `nil` so the
+    /// originating run path is unchanged.
+    let continuationContext: RunContinuationContext?
 
     init(
         providerSnapshot: AgentProviderSnapshot,
@@ -54,7 +58,8 @@ struct RunPlan: Sendable {
         allowNetworkSearch: Bool = false,
         allowFilesystemWrites: Bool = true,
         contextCompactionEnabled: Bool = true,
-        contextCompactionThresholdTokens: Int = 120_000
+        contextCompactionThresholdTokens: Int = 120_000,
+        continuationContext: RunContinuationContext? = nil
     ) {
         self.providerSnapshot = providerSnapshot
         self.providerID = providerID
@@ -74,6 +79,7 @@ struct RunPlan: Sendable {
         self.allowFilesystemWrites = allowFilesystemWrites
         self.contextCompactionEnabled = contextCompactionEnabled
         self.contextCompactionThresholdTokens = contextCompactionThresholdTokens
+        self.continuationContext = continuationContext
     }
 }
 
@@ -787,7 +793,10 @@ final class RunDispatcher {
             projectID: plan.projectID,
             status: RunStatus.running.rawValue,
             startedAt: startedAt,
-            contextBudgetSummary: preflightEstimate?.summary
+            contextBudgetSummary: preflightEstimate?.summary,
+            continuationTriggerCategory: plan.continuationContext?.triggerCategory.rawValue,
+            continuationChainDepth: (plan.continuationContext?.parentChainDepth ?? -1) + 1,
+            continuationParentRunID: plan.continuationContext?.parentRunID
         )
         let usage = UsageLedgerEntry(
             providerID: plan.providerID,
@@ -934,18 +943,43 @@ final class RunDispatcher {
             } ?? (terminal == .cancelled ? "cancelled" : "noExit")
             if let errorMessage {
                 outcome.userFeedback = errorMessage
-                if errorMessage.localizedCaseInsensitiveContains("context window") {
-                    let continuation = TokenBudgetEstimator.makeContinuationPlan(
+                let trigger = ProviderFailureClassifier.categorize(errorMessage: errorMessage)
+                if trigger != .unknown {
+                    let policy = ProviderContinuationPolicy.defaultPolicy(for: plan.providerID)
+                    let parentChainDepth = plan.continuationContext?.parentChainDepth ?? 0
+                    let decision = TokenBudgetEstimator.prepareContinuation(
                         plan: plan,
+                        parentRunID: outcome.runID,
+                        parentChainDepth: parentChainDepth,
+                        triggerCategory: trigger,
+                        errorMessage: errorMessage,
                         standardOutput: stdoutBuffer,
                         standardError: stderrBuffer,
-                        errorMessage: errorMessage,
-                        estimate: runEstimate
+                        estimate: runEstimate,
+                        policy: policy,
+                        clock: now
                     )
-                    continuationPlan = continuation
-                    outcome.continuationSummary = continuation.summary
-                    outcome.continuationPrompt = continuation.prompt
-                    appendSystem("Continuation prompt prepared (\(continuation.estimatedResumeTokens.formatted()) estimated tokens).")
+                    switch decision {
+                    case .prepared(let continuation, let requiresApproval, let appliedPolicy):
+                        continuationPlan = continuation
+                        outcome.continuationSummary = continuation.summary
+                        outcome.continuationPrompt = continuation.prompt
+                        outcome.continuationTriggerCategory = continuation.triggerCategory
+                        outcome.continuationChainDepth = max(
+                            outcome.continuationChainDepth,
+                            continuation.chainDepth
+                        )
+                        outcome.continuationRequiresApproval = requiresApproval
+                        outcome.continuationWorkspaceExcerptCount = continuation.workspaceExcerptCount
+                        outcome.continuationPolicyNote = appliedPolicy.resumeNote
+                        appendSystem(
+                            "Continuation prepared via \(appliedPolicy.displayName) policy (depth \(continuation.chainDepth), \(requiresApproval ? "approval-gated" : "auto-resume ready"), \(continuation.estimatedResumeTokens.formatted()) estimated tokens, \(continuation.workspaceExcerptCount) source excerpt(s))."
+                        )
+                    case .notEligible(let reason):
+                        outcome.continuationTriggerCategory = trigger.rawValue
+                        outcome.continuationPolicyNote = reason
+                        appendSystem("Continuation not offered: \(reason)")
+                    }
                 }
             }
         }
@@ -1118,6 +1152,38 @@ enum ProviderFailureClassifier {
             return "Provider reported an inner command failure with exit code \(nestedExitCode)."
         }
         return nil
+    }
+
+    /// Sprint O.1: map a failure message (whether built by
+    /// `failureMessage(in:)` or supplied by the runner) into a stable
+    /// `ContinuationTriggerCategory`. Unknown messages fall back to
+    /// `.unknown` so policy callers always have a concrete answer.
+    static func categorize(errorMessage: String?) -> ContinuationTriggerCategory {
+        guard let errorMessage else { return .unknown }
+        let lowercased = errorMessage.lowercased()
+        if lowercased.contains("context window") ||
+            lowercased.contains("context length") ||
+            lowercased.contains("token limit") ||
+            lowercased.contains("tokens exceeded") ||
+            lowercased.contains("context_length_exceeded") {
+            return .contextOverflow
+        }
+        if lowercased.contains("quota") ||
+            lowercased.contains("rate limit") ||
+            lowercased.contains("rate_limit") ||
+            lowercased.contains("429") {
+            return .quotaOrRateLimit
+        }
+        if lowercased.contains("structured output") ||
+            lowercased.contains("failed run in its structured") {
+            return .structuredFailure
+        }
+        if lowercased.contains("inner command failure") ||
+            lowercased.contains("nested non-zero") ||
+            lowercased.contains("exit code") {
+            return .nestedNonZeroExit
+        }
+        return .unknown
     }
 
     private static func containsContextLimitFailure(_ text: String) -> Bool {

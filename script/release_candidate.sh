@@ -34,8 +34,11 @@ EXPORT_ENABLED=0
 PACKAGE_ENABLED=0
 NOTARIZE_ENABLED=0
 STAPLE_ENABLED=0
+ASSESS_ENABLED=0
 VERIFY_ONLY=0
 DRY_RUN=0
+SHOW_NOTARY_RUNBOOK=0
+USE_EXISTING_PACKAGE=0
 
 usage() {
   cat <<'USAGE' >&2
@@ -47,12 +50,22 @@ Options:
   --export               Export the archive with developer-id export options.
   --package              Zip the exported or archived app with ditto.
   --notarize             Submit the package with xcrun notarytool and --wait.
-  --staple               Staple and assess the notarized app.
+                         When --use-existing-package is set, the existing ZIP is reused
+                         instead of re-running ditto.
+  --notarize-only        Shortcut for --notarize --use-existing-package; resumes a
+                         previous run that already produced a signed ZIP.
+  --staple               Staple the notarized app and run a Gatekeeper assessment.
+  --staple-only          Alias for --staple; runs against the existing exported app.
+  --assess               Run only the Gatekeeper assessment against the existing app.
+  --use-existing-package Skip re-packaging; assume PACKAGE_PATH already exists.
   --all                  Run archive, export, package, notarize, and staple.
   --dry-run              Print the planned credential-sensitive commands.
+  --notary-runbook       Print the no-secret notarytool profile setup runbook and exit.
 
 Environment:
   RUN_ROOT               USB-backed output root. Defaults under /Volumes/USB256/Xcode_Projects_Storage.
+                         Point RUN_ROOT at a previous run's directory together with
+                         --use-existing-package to resume notarize/staple/assess.
   DEVELOPER_ID_IDENTITY  Full "Developer ID Application: ..." identity. Auto-detected when unique.
   NOTARY_PROFILE         notarytool keychain profile name. Required for --notarize.
   ALB_NOTARY_PROFILE     Alternate notarytool profile env var.
@@ -65,6 +78,62 @@ Environment:
 USAGE
 }
 
+print_notary_runbook() {
+  cat <<'RUNBOOK'
+Sprint O.3 — notarytool profile setup runbook
+============================================
+
+This script never touches Apple-account credentials directly. The
+notarytool profile must be created interactively on the developer Mac
+once, then it lives in the login keychain so the script can submit
+zipped builds without re-prompting.
+
+Choose ONE of the two authentication lanes below. Pick whichever your
+team is set up for. Both leave the actual secret material inside the
+Keychain; no token, key, or password should ever land in a planning doc
+or commit.
+
+Lane A — App Store Connect API key (recommended)
+------------------------------------------------
+1. In App Store Connect → Users and Access → Keys, generate a Developer
+   key (Developer role is enough for notarytool). Download the .p8
+   exactly once and note the Key ID and Issuer ID.
+2. Move the .p8 outside any cloud-synced folder. The conventional
+   location is `~/private_keys/AuthKey_<KeyID>.p8` with 600 perms.
+3. Register the profile in the login keychain:
+     xcrun notarytool store-credentials "agenic-notary" \
+       --key ~/private_keys/AuthKey_<KeyID>.p8 \
+       --key-id <KeyID> \
+       --issuer <IssuerID>
+4. Verify:
+     xcrun notarytool history --keychain-profile "agenic-notary"
+5. Re-run the release candidate script:
+     NOTARY_PROFILE=agenic-notary \
+     RUN_ROOT=<the run root that has the signed ZIP> \
+       script/release_candidate.sh --notarize-only --staple
+
+Lane B — Apple ID + app-specific password
+-----------------------------------------
+1. In appleid.apple.com → Sign-In & Security → App-Specific Passwords,
+   generate one named "agenic notarytool". Apple shows it only once.
+2. Register the profile interactively (the script will prompt for the
+   password; do NOT echo it on the command line):
+     xcrun notarytool store-credentials "agenic-notary" \
+       --apple-id <your-apple-id> \
+       --team-id A45694H5ZG
+3. Verify and resume as in Lane A.
+
+Notes
+-----
+- The profile name "agenic-notary" matches the default the release docs
+  use; pick any name and pass it as NOTARY_PROFILE.
+- App-specific passwords expire when the account is reset; rotate the
+  profile if notarytool starts returning auth errors.
+- Never paste the .p8 contents or app-specific password into AgentPlan
+  or AgentNotes.
+RUNBOOK
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-credentials) VERIFY_ONLY=1 ;;
@@ -72,7 +141,19 @@ while [[ $# -gt 0 ]]; do
     --export) EXPORT_ENABLED=1 ;;
     --package) PACKAGE_ENABLED=1 ;;
     --notarize) NOTARIZE_ENABLED=1; PACKAGE_ENABLED=1 ;;
+    --notarize-only)
+      NOTARIZE_ENABLED=1
+      PACKAGE_ENABLED=0
+      USE_EXISTING_PACKAGE=1
+      ;;
     --staple) STAPLE_ENABLED=1 ;;
+    --staple-only) STAPLE_ENABLED=1 ;;
+    --assess) ASSESS_ENABLED=1 ;;
+    --use-existing-package)
+      USE_EXISTING_PACKAGE=1
+      PACKAGE_ENABLED=0
+      ;;
+    --notary-runbook) SHOW_NOTARY_RUNBOOK=1 ;;
     --all)
       ARCHIVE_ENABLED=1
       EXPORT_ENABLED=1
@@ -92,6 +173,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "$SHOW_NOTARY_RUNBOOK" -eq 1 ]]; then
+  print_notary_runbook
+  exit 0
+fi
 
 fail() {
   echo "release candidate failed: $*" >&2
@@ -140,13 +226,20 @@ require_tool xcrun
 require_tool ditto
 require_tool spctl
 
+needs_developer_id_identity=0
+if [[ "$ARCHIVE_ENABLED" -eq 1 || "$EXPORT_ENABLED" -eq 1 || "$VERIFY_ONLY" -eq 1 ]]; then
+  needs_developer_id_identity=1
+fi
+
 if [[ -z "$developer_id_identity" ]]; then
   if [[ "$ALLOW_XCODE_MANAGED_SIGNING" == "1" ]]; then
     xcode_managed_signing_enabled=1
     echo "note: no local Developer ID Application identity is visible; Xcode-managed Developer ID signing will be attempted for archive/export."
     echo "note: if this fails, install/download the Developer ID Application certificate into the login keychain or set DEVELOPER_ID_IDENTITY."
-  else
+  elif [[ "$needs_developer_id_identity" -eq 1 ]]; then
     fail "no unique Developer ID Application identity found. Install a Developer ID Application certificate, set DEVELOPER_ID_IDENTITY, or set ALLOW_XCODE_MANAGED_SIGNING=1 to let xcodebuild attempt managed signing."
+  else
+    echo "note: skipping Developer ID identity check; this run only resumes notarize/staple/assess against existing artifacts."
   fi
 else
   pass "Developer ID identity available: $developer_id_identity"
@@ -156,12 +249,12 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
   pass "notarytool keychain profile selected: $NOTARY_PROFILE"
 else
   if [[ "$NOTARIZE_ENABLED" -eq 1 ]]; then
-    fail "NOTARY_PROFILE or ALB_NOTARY_PROFILE is required for --notarize"
+    fail "NOTARY_PROFILE or ALB_NOTARY_PROFILE is required for --notarize. Run script/release_candidate.sh --notary-runbook for setup steps."
   fi
   echo "note: no notary profile selected; notarization step is disabled unless NOTARY_PROFILE is set."
 fi
 
-if [[ "$VERIFY_ONLY" -eq 1 && "$ARCHIVE_ENABLED" -eq 0 && "$EXPORT_ENABLED" -eq 0 && "$PACKAGE_ENABLED" -eq 0 && "$NOTARIZE_ENABLED" -eq 0 && "$STAPLE_ENABLED" -eq 0 ]]; then
+if [[ "$VERIFY_ONLY" -eq 1 && "$ARCHIVE_ENABLED" -eq 0 && "$EXPORT_ENABLED" -eq 0 && "$PACKAGE_ENABLED" -eq 0 && "$NOTARIZE_ENABLED" -eq 0 && "$STAPLE_ENABLED" -eq 0 && "$ASSESS_ENABLED" -eq 0 ]]; then
   exit 0
 fi
 
@@ -276,6 +369,20 @@ package_app() {
   pass "package created at $PACKAGE_PATH"
 }
 
+reuse_existing_package() {
+  if [[ ! -f "$PACKAGE_PATH" ]]; then
+    fail "expected existing signed ZIP at $PACKAGE_PATH but it was not found. Set RUN_ROOT to the run directory that owns the signed ZIP, or drop --use-existing-package/--notarize-only and run --package."
+  fi
+  pass "reusing existing signed ZIP at $PACKAGE_PATH"
+}
+
+assess_app() {
+  local app_bundle
+  app_bundle="$(resolved_app_bundle)"
+  run_or_print spctl -a -vv --type execute "$app_bundle"
+  pass "Gatekeeper assessment completed"
+}
+
 notarize_package() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     run_or_print xcrun notarytool submit "$PACKAGE_PATH" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json
@@ -297,8 +404,13 @@ staple_and_assess() {
 
 if [[ "$ARCHIVE_ENABLED" -eq 1 ]]; then archive_app; fi
 if [[ "$EXPORT_ENABLED" -eq 1 ]]; then export_archive; fi
-if [[ "$PACKAGE_ENABLED" -eq 1 ]]; then package_app; fi
+if [[ "$PACKAGE_ENABLED" -eq 1 ]]; then
+  package_app
+elif [[ "$NOTARIZE_ENABLED" -eq 1 && "$USE_EXISTING_PACKAGE" -eq 1 ]]; then
+  reuse_existing_package
+fi
 if [[ "$NOTARIZE_ENABLED" -eq 1 ]]; then notarize_package; fi
 if [[ "$STAPLE_ENABLED" -eq 1 ]]; then staple_and_assess; fi
+if [[ "$ASSESS_ENABLED" -eq 1 && "$STAPLE_ENABLED" -eq 0 ]]; then assess_app; fi
 
 echo "release candidate drill complete"

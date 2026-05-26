@@ -85,6 +85,41 @@ struct RunContinuationPlan: Sendable, Codable, Hashable {
     var summary: String
     var prompt: String
     var estimatedResumeTokens: Int
+    /// Sprint O.1: failure category that triggered the continuation, the
+    /// chain depth this resume would be (0 = originating run, 1 = first
+    /// resume, etc.), the parent runID (when known), and whether the policy
+    /// keeps the resume behind a second approval tap. Defaults preserve
+    /// Sprint C call sites that didn't pass these.
+    var triggerCategory: String
+    var chainDepth: Int
+    var parentRunID: String?
+    var requiresApproval: Bool
+    /// Number of workspace source-file excerpts that were embedded in the
+    /// resume prompt. Zero when no project root was available or no files
+    /// matched the allowlist.
+    var workspaceExcerptCount: Int
+
+    init(
+        reason: String,
+        summary: String,
+        prompt: String,
+        estimatedResumeTokens: Int,
+        triggerCategory: String = ContinuationTriggerCategory.unknown.rawValue,
+        chainDepth: Int = 1,
+        parentRunID: String? = nil,
+        requiresApproval: Bool = true,
+        workspaceExcerptCount: Int = 0
+    ) {
+        self.reason = reason
+        self.summary = summary
+        self.prompt = prompt
+        self.estimatedResumeTokens = estimatedResumeTokens
+        self.triggerCategory = triggerCategory
+        self.chainDepth = chainDepth
+        self.parentRunID = parentRunID
+        self.requiresApproval = requiresApproval
+        self.workspaceExcerptCount = workspaceExcerptCount
+    }
 }
 
 enum TokenBudgetEstimator {
@@ -236,12 +271,51 @@ enum TokenBudgetEstimator {
         errorMessage: String,
         estimate: TokenBudgetEstimate
     ) -> RunContinuationPlan {
+        makeContinuationPlan(
+            plan: plan,
+            standardOutput: standardOutput,
+            standardError: standardError,
+            errorMessage: errorMessage,
+            estimate: estimate,
+            triggerCategory: .unknown,
+            chainDepth: 1,
+            parentRunID: nil,
+            requiresApproval: true,
+            workspaceContext: nil
+        )
+    }
+
+    /// Sprint O.1: chain-aware continuation prompt construction. Optional
+    /// arguments default to the original Sprint C behaviour so existing
+    /// callers keep compiling untouched.
+    static func makeContinuationPlan(
+        plan: RunPlan,
+        standardOutput: String,
+        standardError: String,
+        errorMessage: String,
+        estimate: TokenBudgetEstimate,
+        triggerCategory: ContinuationTriggerCategory,
+        chainDepth: Int,
+        parentRunID: String?,
+        requiresApproval: Bool,
+        workspaceContext: WorkspaceSourceContext?
+    ) -> RunContinuationPlan {
         let outputTail = compact(standardOutput, targetTokens: 900, label: "stdout tail")
         let errorTail = compact(standardError, targetTokens: 500, label: "stderr tail")
         let summary = """
-        Previous \(plan.providerName) run stopped because \(errorMessage)
+        Previous \(plan.providerName) run (chain depth \(chainDepth)) stopped because \(errorMessage)
+        Trigger category: \(triggerCategory.label)
         Estimated prompt pressure was \(estimate.totalInputTokens.formatted()) input tokens against a \(estimate.thresholdTokens.formatted()) token threshold.
         """
+        let workspaceSection: String = {
+            guard let workspaceContext, !workspaceContext.excerpts.isEmpty else {
+                return ""
+            }
+            return """
+
+            \(workspaceContext.formattedPromptFragment)
+            """
+        }()
         let prompt = """
         Continue the previous \(plan.mode.label) run safely.
 
@@ -250,20 +324,76 @@ enum TokenBudgetEstimator {
 
         Original user goal:
         \(compact(plan.prompt, targetTokens: 1_500, label: "original prompt"))
-
+        \(workspaceSection)
         Recent stdout:
         \(outputTail)
 
         Recent stderr:
         \(errorTail)
 
-        Resume from the last coherent state, avoid repeating completed work, and stop if required project context is still missing.
+        Resume from the last coherent state, avoid repeating completed work, re-read AgentNotes if available, and stop if required project context is still missing or if this is the last allowed resume.
         """
         return RunContinuationPlan(
             reason: errorMessage,
             summary: summary,
             prompt: prompt,
-            estimatedResumeTokens: estimateTokens(in: prompt)
+            estimatedResumeTokens: estimateTokens(in: prompt),
+            triggerCategory: triggerCategory.rawValue,
+            chainDepth: chainDepth,
+            parentRunID: parentRunID,
+            requiresApproval: requiresApproval,
+            workspaceExcerptCount: workspaceContext?.excerpts.count ?? 0
+        )
+    }
+
+    /// Sprint O.1: top-level entry point used by the dispatcher. Consults
+    /// `ProviderContinuationPolicy` to decide eligibility, computes the
+    /// next chain depth, optionally pulls a deterministic workspace
+    /// excerpt, and either prepares a `RunContinuationPlan` or returns a
+    /// reason string explaining why no continuation will be offered.
+    static func prepareContinuation(
+        plan: RunPlan,
+        parentRunID: String,
+        parentChainDepth: Int,
+        triggerCategory: ContinuationTriggerCategory,
+        errorMessage: String,
+        standardOutput: String,
+        standardError: String,
+        estimate: TokenBudgetEstimate,
+        policy: ProviderContinuationPolicy,
+        workspaceTargetTokens: Int = 1_200,
+        clock: @Sendable () -> Date = Date.init
+    ) -> ContinuationDecision {
+        let nextChainDepth = parentChainDepth + 1
+        guard policy.eligibleTriggers.contains(triggerCategory) else {
+            return .notEligible(reason: "Provider policy excludes trigger \(triggerCategory.label).")
+        }
+        guard nextChainDepth <= policy.maxChainDepth else {
+            return .notEligible(
+                reason: "Chain depth \(nextChainDepth) would exceed policy cap (\(policy.maxChainDepth))."
+            )
+        }
+        let workspaceContext = WorkspaceSourceSummarizer.summarize(
+            projectRootPath: plan.projectRootPath,
+            targetTotalTokens: workspaceTargetTokens,
+            clock: clock
+        )
+        let continuationPlan = makeContinuationPlan(
+            plan: plan,
+            standardOutput: standardOutput,
+            standardError: standardError,
+            errorMessage: errorMessage,
+            estimate: estimate,
+            triggerCategory: triggerCategory,
+            chainDepth: nextChainDepth,
+            parentRunID: parentRunID,
+            requiresApproval: !policy.allowsAutomaticResume,
+            workspaceContext: workspaceContext
+        )
+        return .prepared(
+            plan: continuationPlan,
+            requiresApproval: !policy.allowsAutomaticResume,
+            policy: policy
         )
     }
 

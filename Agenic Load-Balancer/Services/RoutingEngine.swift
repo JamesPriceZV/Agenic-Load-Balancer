@@ -473,6 +473,33 @@ enum DashboardMetricFactory {
             let latencySeconds = providerUsage?.averageLatencySeconds ?? 0
             let successRate = providerUsage?.successRate ?? 1.0
             let reliabilityScore = reliabilityByProvider[provider.identifier]?.reliabilityScore ?? 0.70
+            // Sprint P.1: "Continuation health" = 1.0 when no recent
+            // continuations were offered, falling linearly as refusals
+            // outpace successful auto-resumes. Approval-gated resumes
+            // count as neutral (user-controlled, not provider failure).
+            let providerReliability = reliabilityByProvider[provider.identifier]
+            let continuationHealth: Double = {
+                guard let providerReliability,
+                      providerReliability.continuationOfferedRunCount > 0 else { return 1.0 }
+                let totalOffered = max(providerReliability.continuationOfferedRunCount, 1)
+                let refusalRate = Double(providerReliability.continuationRefusedRunCount) / Double(totalOffered)
+                let autoResumeBonus = Double(providerReliability.continuationAutoResumeRunCount) / Double(totalOffered)
+                return max(0, min(1, 1 - refusalRate + (autoResumeBonus * 0.15)))
+            }()
+            let continuationLabel: String = {
+                guard let providerReliability,
+                      providerReliability.continuationOfferedRunCount > 0 else {
+                    return "—"
+                }
+                return "\(providerReliability.continuationAutoResumeRunCount)A/\(providerReliability.continuationApprovalGatedRunCount)G/\(providerReliability.continuationRefusedRunCount)R"
+            }()
+            let continuationAccessibility: String = {
+                guard let providerReliability,
+                      providerReliability.continuationOfferedRunCount > 0 else {
+                    return "\(provider.displayName) continuation health 100%"
+                }
+                return "\(provider.displayName) continuation chains: \(providerReliability.continuationAutoResumeRunCount) auto-resume, \(providerReliability.continuationApprovalGatedRunCount) approval-gated, \(providerReliability.continuationRefusedRunCount) refused"
+            }()
 
             return [
                 DashboardHeatmapCell(
@@ -534,6 +561,14 @@ enum DashboardMetricFactory {
                     value: min(costValue / 5, 1),
                     formattedValue: costValue.formatted(.currency(code: "USD")),
                     accessibilitySummary: "\(provider.displayName) estimated cost today \(costValue.formatted(.currency(code: "USD")))"
+                ),
+                DashboardHeatmapCell(
+                    providerID: provider.identifier,
+                    providerName: provider.displayName,
+                    metricName: "Continuation",
+                    value: continuationHealth,
+                    formattedValue: continuationLabel,
+                    accessibilitySummary: continuationAccessibility
                 ),
             ]
         }

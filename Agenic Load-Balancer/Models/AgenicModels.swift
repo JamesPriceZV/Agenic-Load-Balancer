@@ -474,6 +474,15 @@ final class RunOutcomeRecord {
     var continuationSummary: String?
     var continuationPrompt: String?
     var transcriptSegmentCount: Int = 0
+    /// Sprint O.1: per-provider continuation chain metadata. All optional /
+    /// defaulted so older records migrate, and CloudKit-synced peers that
+    /// haven't seen Sprint O.1 yet keep decoding without losing data.
+    var continuationTriggerCategory: String?
+    var continuationChainDepth: Int = 0
+    var continuationParentRunID: String?
+    var continuationRequiresApproval: Bool = true
+    var continuationWorkspaceExcerptCount: Int = 0
+    var continuationPolicyNote: String?
 
     init(
         identifier: String = UUID().uuidString,
@@ -498,7 +507,13 @@ final class RunOutcomeRecord {
         contextBudgetSummary: String? = nil,
         continuationSummary: String? = nil,
         continuationPrompt: String? = nil,
-        transcriptSegmentCount: Int = 0
+        transcriptSegmentCount: Int = 0,
+        continuationTriggerCategory: String? = nil,
+        continuationChainDepth: Int = 0,
+        continuationParentRunID: String? = nil,
+        continuationRequiresApproval: Bool = true,
+        continuationWorkspaceExcerptCount: Int = 0,
+        continuationPolicyNote: String? = nil
     ) {
         self.identifier = identifier
         self.runID = runID
@@ -523,6 +538,12 @@ final class RunOutcomeRecord {
         self.continuationSummary = continuationSummary
         self.continuationPrompt = continuationPrompt
         self.transcriptSegmentCount = transcriptSegmentCount
+        self.continuationTriggerCategory = continuationTriggerCategory
+        self.continuationChainDepth = continuationChainDepth
+        self.continuationParentRunID = continuationParentRunID
+        self.continuationRequiresApproval = continuationRequiresApproval
+        self.continuationWorkspaceExcerptCount = continuationWorkspaceExcerptCount
+        self.continuationPolicyNote = continuationPolicyNote
     }
 }
 

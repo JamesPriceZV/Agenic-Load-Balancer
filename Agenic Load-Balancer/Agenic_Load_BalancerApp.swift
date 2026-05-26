@@ -5,6 +5,7 @@
 //  Created by Zinco Verde on 5/5/26.
 //
 
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -27,6 +28,48 @@ enum AgenicLaunchEnvironment {
 enum AgenicUITestingOptions {
     static var isEnabled: Bool {
         AgenicLaunchEnvironment.usesVolatileStore()
+    }
+
+    /// Sprint O.2: optional appearance override forwarded from
+    /// `XCUIApplication.launchArguments` via `--ui-appearance <light|dark>`.
+    /// Returns `nil` unless the flag is set, so production launches keep
+    /// the user's system appearance.
+    static var appearanceOverride: NSAppearance.Name? {
+        guard isEnabled,
+              let value = launchArgumentValue(for: "--ui-appearance") else {
+            return nil
+        }
+        switch value.lowercased() {
+        case "dark": return .darkAqua
+        case "light": return .aqua
+        default: return nil
+        }
+    }
+
+    /// Sprint O.2: when `--ui-maximize` is passed, the first window is
+    /// zoomed to the screen's visible frame so the maximized snapshot
+    /// matrix can capture full-screen layouts deterministically.
+    static var shouldMaximizeFirstWindow: Bool {
+        guard isEnabled else { return false }
+        return ProcessInfo.processInfo.arguments.contains("--ui-maximize")
+    }
+
+    /// Sprint O.2: when `--ui-provider-edge-cases` is passed the bootstrap
+    /// adds an extra missing-binary provider and an extra failed-auth
+    /// provider plus a failed run outcome so the providers and history
+    /// surfaces have both healthy and unhealthy states to snapshot.
+    static var includesProviderEdgeCases: Bool {
+        guard isEnabled else { return false }
+        return ProcessInfo.processInfo.arguments.contains("--ui-provider-edge-cases")
+    }
+
+    private static func launchArgumentValue(for flag: String) -> String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: flag),
+              arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
     }
 }
 
@@ -169,6 +212,9 @@ struct Agenic_Load_BalancerApp: App {
         WindowGroup {
             ContentView()
                 .frame(minWidth: 960, minHeight: 640)
+                .onAppear {
+                    Self.applyUITestingLaunchOverrides()
+                }
         }
         .modelContainer(sharedModelContainer)
         .commands {
@@ -178,6 +224,23 @@ struct Agenic_Load_BalancerApp: App {
         Settings {
             SettingsView()
                 .modelContainer(sharedModelContainer)
+        }
+    }
+
+    /// Sprint O.2: apply appearance and window-zoom overrides driven by
+    /// `XCUIApplication.launchArguments`. Runs only when the launch
+    /// environment opts into UI-testing fixtures so production behaviour
+    /// is unchanged.
+    @MainActor
+    private static func applyUITestingLaunchOverrides() {
+        guard AgenicUITestingOptions.isEnabled else { return }
+        if let appearanceName = AgenicUITestingOptions.appearanceOverride {
+            NSApp.appearance = NSAppearance(named: appearanceName)
+        }
+        if AgenicUITestingOptions.shouldMaximizeFirstWindow,
+           let window = NSApplication.shared.windows.first {
+            let frame = window.screen?.visibleFrame ?? window.frame
+            window.setFrame(frame, display: true, animate: false)
         }
     }
 }

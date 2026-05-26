@@ -54,6 +54,24 @@ RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_RC_$(date +%Y%m%d_%H%M%S
 
 This still does not replace notarization credentials. `NOTARY_PROFILE` or `ALB_NOTARY_PROFILE` must name a `notarytool` keychain profile before `--notarize` or `--all` can complete.
 
+### Resuming an already-signed run (Sprint O.3)
+
+When `--all` or `--archive --export --package` has already produced a signed `Developer ID` ZIP under a USB run root, the notarize and staple steps can be picked up later — without re-archiving or re-signing — once a `notarytool` keychain profile is installed:
+
+```sh
+script/release_candidate.sh --notary-runbook
+```
+
+prints the full no-secret setup runbook (App Store Connect API key lane and Apple ID + app-specific password lane). Follow either lane locally, then resume notarization against the existing ZIP:
+
+```sh
+NOTARY_PROFILE="agenic-notary" \
+RUN_ROOT="/Volumes/USB256/Xcode_Projects_Storage/Agenic_ReleaseManaged_20260525_121347" \
+  script/release_candidate.sh --notarize-only --staple
+```
+
+`--notarize-only` reuses `RUN_ROOT/Packages/Agenic Load-Balancer.zip` instead of rebuilding it. `--staple-only` runs only `xcrun stapler staple` + `spctl` against the previously exported app. `--assess` runs only the Gatekeeper assessment when staple succeeded earlier. Apple account passwords, API keys, and app-specific passwords stay in Keychain and out of every commit, plan doc, and ledger entry.
+
 ## Entitlement Truth
 
 - Bundle ID: `com.zincoverde.Agenic-Load-Balancer`
