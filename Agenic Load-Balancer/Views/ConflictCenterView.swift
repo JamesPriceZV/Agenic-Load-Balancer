@@ -67,6 +67,9 @@ struct ConflictCenterView: View {
                     .font(.largeTitle.weight(.semibold))
                 Text(statusText)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(statusText)
+                    .accessibilityValue(statusText)
+                    .accessibilityIdentifier("Conflicts.Status")
             }
             Spacer(minLength: 16)
             Button {
@@ -303,6 +306,7 @@ private struct ConflictPreviewCard: View {
             }
             .disabled(!preview.isOpen || isDisabled(action))
             .help(action.detail)
+            .accessibilityIdentifier("Conflicts.Action.\(action.rawValue).\(preview.entityID)")
         }
     }
 

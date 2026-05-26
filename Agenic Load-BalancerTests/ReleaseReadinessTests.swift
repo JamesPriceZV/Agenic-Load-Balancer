@@ -187,5 +187,6 @@ struct ReleaseReadinessTests {
         #expect(visualRegression.contains("testSprintOLightAppearanceSnapshotMatrix"))
         #expect(visualRegression.contains("testSprintOProviderSetupEdgeCaseSnapshotMatrix"))
         #expect(visualRegression.contains("testSprintORunSheetSuccessFailureSnapshotMatrix"))
+        #expect(visualRegression.contains("testSprintQ2RemediationVisualRegressionSnapshotMatrix"))
     }
 }

@@ -348,7 +348,7 @@ enum ProviderSetupBadgeBuilder {
                 tone: .neutral,
                 label: "Aging",
                 detail: "Last probe \(Int(age / 86_400)) day(s) ago; consider re-probing.",
-                remediation: nil
+                remediation: provider.verificationCommand.isEmpty ? "Run provider probe" : provider.verificationCommand
             )
         }
         return ProviderSetupBadge(

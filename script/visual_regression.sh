@@ -65,7 +65,8 @@ xcodebuild test \
   -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintODarkAppearanceSnapshotMatrix" \
   -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintOLightAppearanceSnapshotMatrix" \
   -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintOProviderSetupEdgeCaseSnapshotMatrix" \
-  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintORunSheetSuccessFailureSnapshotMatrix"
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintORunSheetSuccessFailureSnapshotMatrix" \
+  -only-testing:"Agenic Load-BalancerUITests/Agenic_Load_BalancerUITests/testSprintQ2RemediationVisualRegressionSnapshotMatrix"
 
 if [[ ! -n "$(find "$VISUAL_DIR" -maxdepth 1 -type f -print -quit 2>/dev/null)" && -d "$FALLBACK_VISUAL_DIR" ]]; then
   cp -R "$FALLBACK_VISUAL_DIR/." "$VISUAL_DIR/"

@@ -106,6 +106,53 @@ struct FoundationModelsDiagnosticReport: Identifiable, Sendable {
     var hasFailures: Bool {
         probes.contains { $0.status == .failed }
     }
+
+    static func uiTestingFixture(now: Date = Date(timeIntervalSince1970: 1_780_000_000)) -> FoundationModelsDiagnosticReport {
+        FoundationModelsDiagnosticReport(
+            id: UUID(uuidString: "00000000-0000-0000-0000-00000000F0A1") ?? UUID(),
+            startedAt: now.addingTimeInterval(-6),
+            finishedAt: now,
+            availability: .available,
+            probes: [
+                FoundationModelsDiagnosticProbeResult(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-00000000F0A2") ?? UUID(),
+                    kind: .availability,
+                    status: .succeeded,
+                    summary: "Fixture availability succeeded",
+                    detail: "Apple Foundation Models is available on this UI-test fixture.",
+                    durationSeconds: 0.08,
+                    observedAt: now
+                ),
+                FoundationModelsDiagnosticProbeResult(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-00000000F0A3") ?? UUID(),
+                    kind: .commandBarMetrics,
+                    status: .succeeded,
+                    summary: "Metrics tool answered",
+                    detail: "Command-bar metrics routed through deterministic fixture data.",
+                    durationSeconds: 0.12,
+                    observedAt: now
+                ),
+                FoundationModelsDiagnosticProbeResult(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-00000000F0A4") ?? UUID(),
+                    kind: .runSummary,
+                    status: .skipped,
+                    summary: "Summary skipped",
+                    detail: "Skipped in fixture so the visual matrix captures mixed diagnostic tones.",
+                    durationSeconds: 0,
+                    observedAt: now
+                ),
+                FoundationModelsDiagnosticProbeResult(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-00000000F0A5") ?? UUID(),
+                    kind: .routingTieBreak,
+                    status: .failed,
+                    summary: "Tie-break refused",
+                    detail: "Fixture refusal keeps the diagnostic failure path visible without calling the live model.",
+                    durationSeconds: 0.14,
+                    observedAt: now
+                ),
+            ]
+        )
+    }
 }
 
 protocol FoundationModelsDiagnosticsRunning: Sendable {

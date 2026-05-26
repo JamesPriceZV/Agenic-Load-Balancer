@@ -110,6 +110,27 @@ struct ProviderSetupBadgeTests {
         #expect(summaries[2].badge(of: .freshness)?.tone == .warning)
     }
 
+    @Test func nonFreshHealthChecksExposeReprobeRemediation() {
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let agingProvider = provider(lastHealthCheckAt: now.addingTimeInterval(-60 * 60 * 24 * 14))
+        let staleProvider = provider(
+            identifier: "anthropic.claude-code",
+            lastHealthCheckAt: now.addingTimeInterval(-60 * 60 * 24 * 90)
+        )
+
+        let summaries = ProviderSetupBadgeBuilder.summaries(
+            providers: [agingProvider, staleProvider],
+            setups: [],
+            keychainReferences: [],
+            now: { now }
+        )
+
+        let aging = try! #require(summaries[0].badge(of: .freshness))
+        let stale = try! #require(summaries[1].badge(of: .freshness))
+        #expect(aging.remediation?.isEmpty == false)
+        #expect(stale.remediation?.isEmpty == false)
+    }
+
     @Test func credentialsBadgeWarnsWhenAPIRecipeButNoKeychainReference() {
         let profile = provider(auth: .needsToken)
 

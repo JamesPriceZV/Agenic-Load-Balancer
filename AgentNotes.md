@@ -35,10 +35,11 @@ Still live-blocked by external action:
     `script/two_mac_cloudkit_drill.sh --peer-bundle` path, then bring the peer
     manifest/screenshots back and verify with `--verify-peer-evidence`.
 
-Suggested next pure-code sprints:
-  - Sprint Q.2: visual matrices for Conflict Center recovery, the run-sheet
-    continuation panel, and the provider-setup badge strip, plus an in-app
-    "Re-probe" action for freshness-badge remediation.
+Current pure-code state:
+  - Sprint Q.2 is now checkpointed as the provider remediation and visual
+    regression polish slice. It covers Conflict Center recovery status,
+    continuation history, provider freshness remediation, and Foundation Models
+    diagnostics fixture states.
   - Sprint Q.3: autonomous loop scheduler with persisted multi-sprint goals,
     bounded sub-sprints, and validation gates between them.
   - Sprint Q.4: actual restore-into-new-copy workflow with sibling clone,
@@ -50,6 +51,14 @@ Coordination rule reminder: do not write new data to the OneDrive checkout at
 The canonical writable root is the iCloud path above. The OneDrive copy is stale.
 
 ## Active Work
+- [checkpointed] Sprint Q.2 provider remediation and visual-regression polish
+  Assignee: OpenAI Codex
+  Detail: Added explicit provider freshness remediation through per-provider `Re-probe` actions, severity-first provider setup sorting for actionable rows, deterministic provider edge-case fixtures, History continuation-chain panels for failed/continued runs, Conflict Center recovery status and action accessibility identifiers, and a deterministic Foundation Models diagnostics fixture for Settings > Agents. `script/visual_regression.sh` now includes `testSprintQ2RemediationVisualRegressionSnapshotMatrix`, covering provider remediation, Conflict Center recovery, continuation depth, and Foundation Models diagnostics fixture states alongside the existing Sprint L/N/O matrices.
+  Run: local Sprint Q.2 implementation and validation turn on May 26, 2026
+  Commit: this checkpoint commit
+  Conflict: none
+  Validation: focused Sprint Q.2 unit/readiness/conflict tests passed at `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ2_Tests_20260526_FINAL/Results/SprintQ2.xcresult`. Focused Q.2 UI matrix passed at `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ2_UI_20260526_005600/Results/SprintQ2UI.xcresult`. Full expanded visual regression including Sprint L/N/O/Q.2 matrices passed at `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ2_Visual_20260526_010200/Results/VisualRegression.xcresult`.
+
 - [checkpointed] Sprint Q.1 entity-specific merge policies
   Assignee: Anthropic Claude implementation; OpenAI Codex validation closeout
   Detail: Added `Services/EntityMergePolicy.swift` with `FieldMergeRule` (preferNonEmpty, preferLatest, concatLines, immutableHardConflict, stateMachineFavorTerminal, userRatedWinsOverInferred), `EntityMergePolicy` (per-entity field rule map + audit commutativity flag), `EntityMergePolicyRegistry` (canonical entity type names, `AgentProviderProfile` / `AutonomyTaskRecord` / `RunOutcomeRecord` rules, terminal-status and user-rating value sets), and `EntityMergePolicyEvaluator` (returns `.merged`/`.hardConflict`/`.notApplicable`). Wired into `ConflictResolutionEngine.resolve` before the generic Lamport fallback. The audit special case still wins for `appendAudit` operations regardless of entity type. Six new tests in `ConflictResolutionEngineTests` cover provider descriptive-field merge + immutable identity hard-conflict, autonomy task terminal-state preference + dual-terminal hard-conflict, run outcome user-rating preservation + append-only feedback + immutable build-result hard-conflict, and the unchanged generic-Lamport fallback for unknown entity types.

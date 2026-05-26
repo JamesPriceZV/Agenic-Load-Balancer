@@ -256,6 +256,44 @@ final class Agenic_Load_BalancerUITests: XCTestCase {
         try assertVisualSnapshot(named: "history-success-and-failure", baseline: .contentDense)
     }
 
+    // MARK: Sprint Q.2 remediation and recovery matrices
+
+    @MainActor
+    func testSprintQ2RemediationVisualRegressionSnapshotMatrix() throws {
+        launchAgenic(extraArguments: ["--ui-provider-edge-cases", "--ui-foundation-diagnostics-fixture"])
+
+        tap(identifier: "Sidebar.providers")
+        XCTAssertTrue(element("Screen.Providers").waitForExistence(timeout: 5))
+        XCTAssertTrue(element("ProviderRow.openai.codex.Reprobe").waitForExistence(timeout: 5))
+        assertVisibleWithinWindow(identifier: "ProviderRow.openai.codex.Reprobe")
+        try assertVisualSnapshot(named: "providers-remediation-actions", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.conflictCenter")
+        XCTAssertTrue(element("Screen.Conflicts").waitForExistence(timeout: 5))
+        tap(identifier: "Conflicts.RunDrillButton")
+        assertLabel(
+            identifier: "Conflicts.Status",
+            contains: "Recovery drill",
+            notContaining: ["failed", "needs review"]
+        )
+        try assertVisualSnapshot(named: "conflict-center-recovery-recorded", baseline: .contentDense)
+
+        tap(identifier: "Sidebar.history")
+        XCTAssertTrue(element("Screen.History").waitForExistence(timeout: 5))
+        XCTAssertTrue(element("History.Continuation.UITEST-RUN-FAILED").waitForExistence(timeout: 5))
+        assertVisibleWithinWindow(identifier: "History.Continuation.UITEST-RUN-FAILED")
+        try assertVisualSnapshot(named: "history-continuation-depth", baseline: .contentDense)
+
+        tap(identifier: "Toolbar.Settings")
+        XCTAssertTrue(element("Sheet.Settings").waitForExistence(timeout: 5))
+        tap(identifier: "Settings.Tab.agents")
+        XCTAssertTrue(element("Settings.FoundationDiagnostics.Section").waitForExistence(timeout: 5))
+        assertLabel(identifier: "Settings.FoundationDiagnostics.Section", contains: "failed")
+        try assertVisualSnapshot(named: "foundation-diagnostics-fixture", baseline: .settingsSheet)
+        tap(identifier: "Settings.BackToApp")
+        XCTAssertTrue(element("Sheet.Settings").waitForNonExistence(timeout: 5))
+    }
+
     @MainActor
     private func launchAgenic(extraArguments: [String] = []) {
         app = XCUIApplication()
@@ -294,6 +332,43 @@ final class Agenic_Load_BalancerUITests: XCTestCase {
     @MainActor
     private func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor
+    private func staticText(containing text: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
+    @MainActor
+    private func assertLabel(
+        identifier: String,
+        contains requiredText: String,
+        notContaining rejectedText: [String] = [],
+        timeout: TimeInterval = 5
+    ) {
+        let target = element(identifier)
+        XCTAssertTrue(target.waitForExistence(timeout: timeout), "Missing UI element: \(identifier)")
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let stateText = accessibilityText(for: target)
+            if stateText.localizedCaseInsensitiveContains(requiredText),
+               rejectedText.allSatisfy({ !stateText.localizedCaseInsensitiveContains($0) }) {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        let stateText = accessibilityText(for: target)
+        XCTFail("\(identifier) accessibility text did not match. Expected to contain '\(requiredText)' and avoid \(rejectedText); actual text: '\(stateText)'")
+    }
+
+    @MainActor
+    private func accessibilityText(for target: XCUIElement) -> String {
+        let value = (target.value as? String) ?? ""
+        return [target.label, value]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     @MainActor

@@ -63,6 +63,13 @@ enum AgenicUITestingOptions {
         return ProcessInfo.processInfo.arguments.contains("--ui-provider-edge-cases")
     }
 
+    /// Sprint Q.2: deterministic Settings > Agents diagnostics fixture for
+    /// screenshot coverage. Live Foundation Models probes remain user-run.
+    static var includesFoundationModelsDiagnosticsFixture: Bool {
+        guard isEnabled else { return false }
+        return ProcessInfo.processInfo.arguments.contains("--ui-foundation-diagnostics-fixture")
+    }
+
     private static func launchArgumentValue(for flag: String) -> String? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: flag),
@@ -313,12 +320,19 @@ struct SettingsView: View {
         status: "loading",
         detail: "Checking CloudKit-backed SwiftData status."
     )
-    @State private var foundationModelsAvailability = SystemLanguageModelAvailabilityChecker().currentAvailability()
+    @State private var foundationModelsAvailability: FoundationModelsAvailability
     @State private var foundationModelsReport: FoundationModelsDiagnosticReport?
     @State private var foundationModelsDiagnosticsRunning = false
 
     init(initialTab: AgenicSettingsTab = .generation) {
+        let diagnosticsFixture = AgenicUITestingOptions.includesFoundationModelsDiagnosticsFixture
+            ? FoundationModelsDiagnosticReport.uiTestingFixture()
+            : nil
         _selectedTab = State(initialValue: initialTab)
+        _foundationModelsAvailability = State(
+            initialValue: diagnosticsFixture?.availability ?? SystemLanguageModelAvailabilityChecker().currentAvailability()
+        )
+        _foundationModelsReport = State(initialValue: diagnosticsFixture)
     }
 
     var body: some View {
@@ -576,6 +590,13 @@ struct SettingsView: View {
             if let foundationModelsReport {
                 settingsRow("Last run", foundationModelsReport.finishedAt.formatted(date: .abbreviated, time: .standard))
                 settingsRow("Status", foundationModelsReport.statusSummary)
+                Text(foundationModelsReport.statusSummary)
+                    .font(.caption2)
+                    .opacity(0.01)
+                    .frame(width: 1, height: 1)
+                    .accessibilityLabel(foundationModelsReport.statusSummary)
+                    .accessibilityValue(foundationModelsReport.statusSummary)
+                    .accessibilityIdentifier("Settings.FoundationDiagnostics.StatusSummary")
                 ForEach(foundationModelsReport.probes) { probe in
                     foundationModelsProbeRow(probe)
                 }
@@ -595,7 +616,10 @@ struct SettingsView: View {
             }
             .disabled(foundationModelsDiagnosticsRunning)
             .padding(.top, 8)
+            .accessibilityIdentifier("Settings.FoundationDiagnostics.RunButton")
         }
+        .accessibilityValue(foundationModelsReport?.statusSummary ?? "No diagnostics run.")
+        .accessibilityIdentifier("Settings.FoundationDiagnostics.Section")
     }
 
     private func settingsSection<Content: View>(

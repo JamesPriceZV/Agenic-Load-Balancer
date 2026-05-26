@@ -2296,6 +2296,7 @@ private struct ProviderSetupView: View {
     @Query private var keychainReferences: [KeychainReferenceRecord]
 
     @State private var isProbing = false
+    @State private var probingProviderIDs: Set<String> = []
     @State private var statusText = "Installers are never run silently. Copy commands after reviewing the provider source."
     @State private var wizardTarget: WizardTarget?
 
@@ -2307,6 +2308,30 @@ private struct ProviderSetupView: View {
                 keychainReferences: keychainReferences
             ).map { ($0.providerID, $0) }
         )
+    }
+
+    private var orderedProviders: [AgentProviderProfile] {
+        let catalogOrder = Dictionary(
+            uniqueKeysWithValues: ProviderCatalog.defaultProfiles.enumerated().map { index, draft in
+                (draft.identifier, index)
+            }
+        )
+
+        return providers.sorted { lhs, rhs in
+            let lhsTone = badgeSummariesByProvider[lhs.identifier]?.overallTone ?? .healthy
+            let rhsTone = badgeSummariesByProvider[rhs.identifier]?.overallTone ?? .healthy
+            if lhsTone != rhsTone {
+                return lhsTone < rhsTone
+            }
+
+            let lhsIndex = catalogOrder[lhs.identifier] ?? Int.max
+            let rhsIndex = catalogOrder[rhs.identifier] ?? Int.max
+            if lhsIndex != rhsIndex {
+                return lhsIndex < rhsIndex
+            }
+
+            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -2330,10 +2355,14 @@ private struct ProviderSetupView: View {
                     .disabled(isProbing)
                 }
 
-                ForEach(providers, id: \.identifier) { provider in
+                ForEach(orderedProviders, id: \.identifier) { provider in
                     ProviderProfileRow(
                         provider: provider,
-                        badgeSummary: badgeSummariesByProvider[provider.identifier]
+                        badgeSummary: badgeSummariesByProvider[provider.identifier],
+                        isReprobing: probingProviderIDs.contains(provider.identifier),
+                        onReprobe: {
+                            probeProvider(provider)
+                        }
                     ) {
                         wizardTarget = WizardTarget(id: provider.identifier, provider: provider)
                     }
@@ -2358,13 +2387,7 @@ private struct ProviderSetupView: View {
         Task { @MainActor in
             for provider in providers {
                 let health = await AppServices.healthMonitor.probe(provider: provider.snapshot())
-                provider.installedState = health.availabilityState.rawValue
-                if health.authStatus == .accountSignedIn || health.authStatus == .apiKeyPresent || health.authStatus == .customProfile || health.authStatus == .notRequired {
-                    provider.authState = ProviderAuthState.authenticated.rawValue
-                }
-                provider.lastDetectedVersion = health.detectedVersion
-                provider.lastHealthCheckAt = health.checkedAt
-                provider.updatedAt = health.checkedAt
+                apply(health: health, to: provider)
             }
 
             do {
@@ -2377,12 +2400,53 @@ private struct ProviderSetupView: View {
             isProbing = false
         }
     }
+
+    private func probeProvider(_ provider: AgentProviderProfile) {
+        let providerID = provider.identifier
+        probingProviderIDs.insert(providerID)
+        statusText = "Re-probing \(provider.displayName) for badge remediation."
+
+        Task { @MainActor in
+            let health = await AppServices.healthMonitor.probe(provider: provider.snapshot())
+            apply(health: health, to: provider)
+
+            do {
+                try modelContext.save()
+                await AppServices.cloudSync.recordLocalSave()
+                statusText = "\(provider.displayName) re-probe complete."
+            } catch {
+                statusText = "\(provider.displayName) re-probe saved locally with error: \(error.localizedDescription)"
+            }
+            probingProviderIDs.remove(providerID)
+        }
+    }
+
+    private func apply(health: ProviderHealthSnapshot, to provider: AgentProviderProfile) {
+        provider.installedState = health.availabilityState.rawValue
+        if health.authStatus == .accountSignedIn || health.authStatus == .apiKeyPresent || health.authStatus == .customProfile || health.authStatus == .notRequired {
+            provider.authState = ProviderAuthState.authenticated.rawValue
+        }
+        provider.lastDetectedVersion = health.detectedVersion
+        provider.lastHealthCheckAt = health.checkedAt
+        provider.updatedAt = health.checkedAt
+    }
 }
 
 private struct ProviderProfileRow: View {
     let provider: AgentProviderProfile
     let badgeSummary: ProviderSetupBadgeSummary?
+    let isReprobing: Bool
+    let onReprobe: () -> Void
     let onSetup: () -> Void
+
+    private var freshnessBadge: ProviderSetupBadge? {
+        badgeSummary?.badge(of: .freshness)
+    }
+
+    private var shouldOfferReprobe: Bool {
+        guard let freshnessBadge else { return false }
+        return freshnessBadge.tone != .healthy
+    }
 
     var body: some View {
         GlassPanel {
@@ -2431,21 +2495,51 @@ private struct ProviderProfileRow: View {
                         .foregroundStyle(.secondary)
                 }
 
-                HStack {
-                    Link("Provider Docs", destination: URL(string: provider.sourceURL) ?? URL(string: "https://example.com")!)
-                    Spacer()
-                    Button {
-                        onSetup()
-                    } label: {
-                        Label("Set up…", systemImage: "wand.and.rays")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        providerDocsLink
+                        Spacer()
+                        providerActionButtons
                     }
-                    .buttonStyle(.borderedProminent)
+                    VStack(alignment: .leading, spacing: 10) {
+                        providerDocsLink
+                        HStack(spacing: 10) {
+                            providerActionButtons
+                        }
+                    }
                 }
                 Text(provider.safetyNotes)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
+        }
+    }
+
+    private var providerDocsLink: some View {
+        Link("Provider Docs", destination: URL(string: provider.sourceURL) ?? URL(string: "https://example.com")!)
+    }
+
+    private var providerActionButtons: some View {
+        Group {
+            if shouldOfferReprobe {
+                Button {
+                    onReprobe()
+                } label: {
+                    Label(isReprobing ? "Re-probing…" : "Re-probe", systemImage: "waveform.path.ecg")
+                }
+                .disabled(isReprobing)
+                .buttonStyle(.bordered)
+                .help(freshnessBadge?.remediation ?? freshnessBadge?.detail ?? "Run provider probe")
+                .accessibilityIdentifier("ProviderRow.\(provider.identifier).Reprobe")
+            }
+            Button {
+                onSetup()
+            } label: {
+                Label("Set up…", systemImage: "wand.and.rays")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("ProviderRow.\(provider.identifier).Setup")
         }
     }
 }
@@ -3858,6 +3952,11 @@ private struct HistoryView: View {
                                     }
                                 }
                             }
+
+                            if outcome.hasContinuationEvidence {
+                                HistoryContinuationPanel(outcome: outcome)
+                                    .accessibilityIdentifier("History.Continuation.\(outcome.runID)")
+                            }
                         }
                     }
                 }
@@ -3872,6 +3971,58 @@ private struct HistoryView: View {
             }
             .padding(24)
         }
+    }
+}
+
+private struct HistoryContinuationPanel: View {
+    let outcome: RunOutcomeRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            HStack(spacing: 6) {
+                Label("Continuation", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                continuationChip("Depth \(outcome.continuationChainDepth)")
+                continuationChip(triggerLabel)
+                continuationChip(outcome.continuationRequiresApproval ? "Approval-gated" : "Auto-resume")
+                if outcome.continuationWorkspaceExcerptCount > 0 {
+                    continuationChip("\(outcome.continuationWorkspaceExcerptCount) excerpt(s)")
+                }
+            }
+            Text(outcome.continuationSummary ?? outcome.continuationPolicyNote ?? "Continuation metadata captured for this run.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(10)
+        .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var triggerLabel: String {
+        guard let raw = outcome.continuationTriggerCategory, !raw.isEmpty else {
+            return "Trigger unknown"
+        }
+        return ContinuationTriggerCategory(rawValue: raw)?.label ?? raw
+    }
+
+    private func continuationChip(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.secondary.opacity(0.16), in: Capsule())
+    }
+}
+
+private extension RunOutcomeRecord {
+    var hasContinuationEvidence: Bool {
+        continuationSummary?.isEmpty == false ||
+            continuationPrompt?.isEmpty == false ||
+            continuationTriggerCategory?.isEmpty == false ||
+            continuationPolicyNote?.isEmpty == false ||
+            continuationChainDepth > 0
     }
 }
 

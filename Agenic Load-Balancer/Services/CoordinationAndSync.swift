@@ -82,21 +82,20 @@ enum AppBootstrapper {
         // applied when the launch arg explicitly asks for it so existing
         // UI tests stay byte-identical.
         if AgenicUITestingOptions.includesProviderEdgeCases {
-            let providersByIndex = providers
-            if providersByIndex.count > 5 {
-                let missingProvider = providersByIndex[4]
+            if let missingProvider = providers.first(where: { $0.identifier == "openai.codex" }) ?? providers.first {
                 missingProvider.installedState = ProviderAvailabilityState.missing.rawValue
                 missingProvider.authState = ProviderAuthState.unauthenticated.rawValue
                 missingProvider.lastDetectedVersion = nil
-                missingProvider.lastHealthCheckAt = now
+                missingProvider.lastHealthCheckAt = now.addingTimeInterval(-60 * 60 * 24 * 45)
                 missingProvider.isEnabled = true
                 missingProvider.updatedAt = now
+            }
 
-                let failingAuthProvider = providersByIndex[5]
+            if let failingAuthProvider = providers.first(where: { $0.identifier == "anthropic.claude-code" }) ?? providers.dropFirst().first {
                 failingAuthProvider.installedState = ProviderAvailabilityState.available.rawValue
                 failingAuthProvider.authState = ProviderAuthState.needsToken.rawValue
                 failingAuthProvider.lastDetectedVersion = "uitest"
-                failingAuthProvider.lastHealthCheckAt = now
+                failingAuthProvider.lastHealthCheckAt = nil
                 failingAuthProvider.isEnabled = true
                 failingAuthProvider.updatedAt = now
             }
