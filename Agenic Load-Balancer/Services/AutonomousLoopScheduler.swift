@@ -48,7 +48,7 @@ struct AutonomousLoopBudget: Sendable, Hashable {
 
 /// One iteration's worth of state, recorded into the report so callers
 /// can render the full chain in the autonomy control room.
-struct AutonomousLoopIteration: Sendable, Hashable, Identifiable {
+struct AutonomousLoopIteration: Sendable, Hashable, Identifiable, Codable {
     enum Status: String, Sendable, Hashable, Codable {
         /// The task was inspection/plan-only/docs-only — marked complete
         /// without invoking a validation gate or provider.
@@ -75,9 +75,44 @@ struct AutonomousLoopIteration: Sendable, Hashable, Identifiable {
     let detail: String
     let validationCommand: String?
     let validationExitCode: Int32?
+    /// Sprint Q.7: captured `ValidationGateResult.outputExcerpt` so the
+    /// Loop Report Detail drill-down can show why a gate failed without
+    /// re-running the command. Optional + default-nil so older persisted
+    /// reports (and existing tests/call sites) keep working.
+    let validationOutputExcerpt: String?
     let occurredAt: Date
 
     var id: String { "\(index):\(taskID)" }
+
+    init(
+        index: Int,
+        taskID: String,
+        taskTitle: String,
+        mode: String,
+        status: Status,
+        detail: String,
+        validationCommand: String? = nil,
+        validationExitCode: Int32? = nil,
+        validationOutputExcerpt: String? = nil,
+        occurredAt: Date
+    ) {
+        self.index = index
+        self.taskID = taskID
+        self.taskTitle = taskTitle
+        self.mode = mode
+        self.status = status
+        self.detail = detail
+        self.validationCommand = validationCommand
+        self.validationExitCode = validationExitCode
+        self.validationOutputExcerpt = validationOutputExcerpt
+        self.occurredAt = occurredAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case index, taskID, taskTitle, mode, status, detail,
+             validationCommand, validationExitCode,
+             validationOutputExcerpt, occurredAt
+    }
 }
 
 /// Why the scheduler stopped walking the plan.
@@ -89,6 +124,20 @@ enum AutonomousLoopHaltReason: Sendable, Hashable {
     case iterationCap(max: Int)
     case approvalCap(max: Int)
     case dependencyDeadlock(unresolvedTaskIDs: [String])
+
+    /// Stable identifier for the case used for persisted records, UI
+    /// chips, and analytics. The associated values land in `label`.
+    var kind: String {
+        switch self {
+        case .completed: "completed"
+        case .approvalRequired: "approvalRequired"
+        case .denied: "denied"
+        case .validationFailureCap: "validationFailureCap"
+        case .iterationCap: "iterationCap"
+        case .approvalCap: "approvalCap"
+        case .dependencyDeadlock: "dependencyDeadlock"
+        }
+    }
 
     var label: String {
         switch self {
@@ -399,6 +448,7 @@ struct AutonomousLoopScheduler: Sendable {
                             detail: "Validation gate passed.",
                             validationCommand: command,
                             validationExitCode: result.exitCode,
+                            validationOutputExcerpt: result.outputExcerpt.isEmpty ? nil : result.outputExcerpt,
                             occurredAt: gateAt
                         )
                     )
@@ -424,6 +474,7 @@ struct AutonomousLoopScheduler: Sendable {
                             detail: "Validation gate failed; exit \(result.exitCode).",
                             validationCommand: command,
                             validationExitCode: result.exitCode,
+                            validationOutputExcerpt: result.outputExcerpt.isEmpty ? nil : result.outputExcerpt,
                             occurredAt: gateAt
                         )
                     )
@@ -446,7 +497,7 @@ struct AutonomousLoopScheduler: Sendable {
         try? modelContext.save()
 
         let pendingTaskIDs = orderedTaskIDs.filter { !completedTaskIDs.contains($0) }
-        return AutonomousLoopRunReport(
+        let report = AutonomousLoopRunReport(
             goalID: plan.goalID,
             planID: plan.planID,
             iterations: iterations,
@@ -458,6 +509,12 @@ struct AutonomousLoopScheduler: Sendable {
             startedAt: startedAt,
             endedAt: now()
         )
+        // Sprint Q.5: persist the report so the autonomy control room
+        // and the history view can rebuild what happened across
+        // sessions and (via SwiftData CloudKit sync) machines. Errors
+        // here are non-fatal — the in-memory report is still returned.
+        _ = try? AutonomousLoopPersistence.persistReport(report, modelContext: modelContext, now: now())
+        return report
     }
 }
 
@@ -542,5 +599,166 @@ enum AutonomousLoopOrder {
             }
         }
         return resolved
+    }
+}
+
+// MARK: - Sprint Q.5: persist loop reports to SwiftData
+
+/// CloudKit-compatible persistence helpers that round-trip a
+/// `AutonomousLoopRunReport` through `AutonomousLoopReportRecord`. The
+/// iterations field is stored as JSON so adding fields stays additive
+/// (no schema migration when `AutonomousLoopIteration` evolves).
+@MainActor
+enum AutonomousLoopPersistence {
+    static func persistReport(
+        _ report: AutonomousLoopRunReport,
+        modelContext: ModelContext,
+        now: Date = Date()
+    ) throws -> AutonomousLoopReportRecord {
+        let record = AutonomousLoopReportRecord(
+            identifier: "\(report.planID)-\(Int(report.endedAt.timeIntervalSince1970))",
+            goalID: report.goalID,
+            planID: report.planID,
+            haltReasonKind: report.haltReason.kind,
+            haltReasonLabel: report.haltReason.label,
+            iterationsJSON: encodeIterations(report.iterations),
+            validationFailureCount: report.validationFailureCount,
+            approvalSurfaceCount: report.approvalSurfaceCount,
+            completedTaskIDsJSON: encodeStrings(report.completedTaskIDs),
+            pendingTaskIDsJSON: encodeStrings(report.pendingTaskIDs),
+            startedAt: report.startedAt,
+            endedAt: report.endedAt,
+            createdAt: now
+        )
+        modelContext.insert(record)
+        do {
+            try modelContext.save()
+        } catch {
+            throw AutonomyExecutionError.saveFailed(error.localizedDescription)
+        }
+        return record
+    }
+
+    static func decodeIterations(_ json: String) -> [AutonomousLoopIteration] {
+        let data = Data(json.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([AutonomousLoopIteration].self, from: data)) ?? []
+    }
+
+    static func decodeTaskIDs(_ json: String) -> [String] {
+        let data = Data(json.utf8)
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    /// Sprint Q.10: prune persisted loop reports according to the
+    /// retention policy. Always preserves the most recent report per
+    /// plan; otherwise drops reports beyond `maxReportsPerPlan` or
+    /// older than `maxAgeDays`. Returns the count of deleted records
+    /// so the UI can confirm what happened. Failures are non-fatal —
+    /// retention is best-effort housekeeping, not load-bearing work.
+    @discardableResult
+    static func applyRetention(
+        policy: AutonomyLoopReportRetentionPolicy,
+        modelContext: ModelContext,
+        now: Date = Date()
+    ) -> Int {
+        let reports: [AutonomousLoopReportRecord]
+        do {
+            reports = try modelContext.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        } catch {
+            return 0
+        }
+        let ids = Set(AutonomyLoopReportRetentionPolicy.prune(
+            reports: reports,
+            policy: policy,
+            now: now
+        ))
+        guard !ids.isEmpty else { return 0 }
+        var deleted = 0
+        for record in reports where ids.contains(record.identifier) {
+            modelContext.delete(record)
+            deleted += 1
+        }
+        try? modelContext.save()
+        return deleted
+    }
+
+    private static func encodeIterations(_ iterations: [AutonomousLoopIteration]) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(iterations),
+              let string = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return string
+    }
+
+    private static func encodeStrings(_ values: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(values),
+              let string = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return string
+    }
+}
+
+extension AutonomousLoopRunReport {
+    /// User-facing chip label used by the loop history panel. Mirrors
+    /// `AutonomousLoopReportRecord.haltReasonKind` so persisted and
+    /// in-memory reports render identically.
+    var haltReasonChipLabel: String {
+        switch haltReason {
+        case .completed: "Completed"
+        case .approvalRequired: "Approval"
+        case .denied: "Denied"
+        case .validationFailureCap: "Validation"
+        case .iterationCap: "Iteration cap"
+        case .approvalCap: "Approval cap"
+        case .dependencyDeadlock: "Dependency"
+        }
+    }
+}
+
+/// Sprint Q.6: a filter applied to the persisted iteration list when
+/// the user drills into a `AutonomousLoopReportRecord` in the loop
+/// detail sheet. The filter is pure and testable on its own — UI code
+/// only needs to render the result.
+enum AutonomyLoopReportFilter: String, CaseIterable, Identifiable, Sendable, Hashable {
+    case all
+    case failuresOnly
+    case approvalsOnly
+    case validationOnly
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all: "All"
+        case .failuresOnly: "Failures"
+        case .approvalsOnly: "Approvals"
+        case .validationOnly: "Validation"
+        }
+    }
+
+    func apply(to iterations: [AutonomousLoopIteration]) -> [AutonomousLoopIteration] {
+        switch self {
+        case .all:
+            return iterations
+        case .failuresOnly:
+            return iterations.filter { iteration in
+                iteration.status == .validationFailed ||
+                    iteration.status == .denied ||
+                    iteration.status == .dependenciesUnresolved
+            }
+        case .approvalsOnly:
+            return iterations.filter { $0.status == .approvalRequired }
+        case .validationOnly:
+            return iterations.filter { iteration in
+                iteration.status == .validationPassed ||
+                    iteration.status == .validationFailed
+            }
+        }
     }
 }

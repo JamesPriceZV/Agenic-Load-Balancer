@@ -5,6 +5,10 @@
 //  Sprint E: inspect operation-envelope conflicts before applying any
 //  cross-machine resolution.
 //
+//  Sprint Q.4: wire the `.restoreIntoNewCopy` lane to the real
+//  scoped-clone workflow and expose a Workspace Copies manager so
+//  the user can archive or delete divergence workspaces.
+//
 
 import SwiftData
 import SwiftUI
@@ -16,8 +20,18 @@ struct ConflictCenterView: View {
     let operations: [AutonomyOperationRecord]
     let peers: [MachinePeerRecord]
     let snapshots: [CloudSnapshotRecord]
+    var projects: [AgentProject] = []
+    var tasks: [AutonomyTaskRecord] = []
 
     @State private var statusText = "Review divergent operation envelopes before resolving cross-machine state."
+    @State private var pendingLargeCopy: PendingLargeCopy?
+
+    private struct PendingLargeCopy: Identifiable {
+        let id = UUID()
+        let plan: RestoreIntoNewCopyPlan
+        let record: ConflictResolutionRecord
+        let preview: ConflictResolutionPreview
+    }
 
     private var previews: [ConflictResolutionPreview] {
         ConflictResolutionPreviewBuilder.build(
@@ -30,6 +44,15 @@ struct ConflictCenterView: View {
 
     private var openPreviews: [ConflictResolutionPreview] {
         previews.filter(\.isOpen)
+    }
+
+    private var divergenceWorkspaces: [DivergenceWorkspaceSummary] {
+        let allAudits = (try? modelContext.fetch(FetchDescriptor<AuditTrailRecord>())) ?? []
+        return WorkspaceCopyManager.listDivergenceWorkspaces(
+            projects: projects,
+            tasks: tasks,
+            audits: allAudits
+        )
     }
 
     var body: some View {
@@ -55,9 +78,51 @@ struct ConflictCenterView: View {
                         )
                     }
                 }
+
+                if !divergenceWorkspaces.isEmpty {
+                    workspaceCopiesSection
+                }
             }
             .padding(24)
         }
+        .confirmationDialog(
+            largeCopyDialogTitle,
+            isPresented: largeCopyPresented,
+            presenting: pendingLargeCopy
+        ) { pending in
+            Button("Copy files anyway", role: .destructive) {
+                applyRestorePlan(plan: pending.plan, record: pending.record, preview: pending.preview, allowLargeCopy: true)
+                pendingLargeCopy = nil
+            }
+            Button("Skip file copy") {
+                applyRestorePlan(plan: pending.plan, record: pending.record, preview: pending.preview, allowLargeCopy: false)
+                pendingLargeCopy = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingLargeCopy = nil
+            }
+        } message: { pending in
+            Text(largeCopyMessage(for: pending.plan))
+        }
+    }
+
+    private var largeCopyDialogTitle: String {
+        "Large workspace copy"
+    }
+
+    private var largeCopyPresented: Binding<Bool> {
+        Binding(
+            get: { pendingLargeCopy != nil },
+            set: { presented in
+                if !presented { pendingLargeCopy = nil }
+            }
+        )
+    }
+
+    private func largeCopyMessage(for plan: RestoreIntoNewCopyPlan) -> String {
+        let size = RestoreIntoNewCopyMath.humanReadable(bytes: plan.estimatedSourceSizeBytes)
+        let threshold = RestoreIntoNewCopyMath.humanReadable(bytes: plan.largeSizeThresholdBytes)
+        return "The source workspace is approximately \(size) and exceeds the \(threshold) duplication threshold. Copying the files will create a complete sibling directory. SwiftData row clones run either way."
     }
 
     private var header: some View {
@@ -115,8 +180,43 @@ struct ConflictCenterView: View {
         }
     }
 
+    @ViewBuilder
+    private var workspaceCopiesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Workspace Copies", systemImage: "square.stack.3d.up.fill")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Text("\(divergenceWorkspaces.count)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("Conflicts.WorkspaceCopies.Header")
+
+            ForEach(divergenceWorkspaces) { workspace in
+                DivergenceWorkspaceRow(
+                    workspace: workspace,
+                    onArchive: { archive(workspace: workspace) },
+                    onDelete: { delete(workspace: workspace) }
+                )
+            }
+        }
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius)
+                .fill(.regularMaterial)
+                .overlay(RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius).fill(AgenicTheme.glassTint))
+        }
+        .overlay(RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius).stroke(.separator.opacity(0.3)))
+    }
+
     private func record(action: ConflictResolutionAction, for preview: ConflictResolutionPreview) {
         let record = persistedRecord(for: preview)
+
+        if action == .restoreIntoNewCopy {
+            beginRestoreIntoNewCopy(preview: preview, record: record)
+            return
+        }
 
         do {
             try ConflictResolutionPreviewBuilder.apply(action: action, to: record, using: preview)
@@ -128,6 +228,56 @@ struct ConflictCenterView: View {
         }
     }
 
+    private func beginRestoreIntoNewCopy(preview: ConflictResolutionPreview, record: ConflictResolutionRecord) {
+        let allAudits = (try? modelContext.fetch(FetchDescriptor<AuditTrailRecord>())) ?? []
+        let sourceProject = projects.first(where: { project in
+            guard let projectID = tasks.first(where: { $0.identifier == preview.entityID })?.goalID else {
+                return false
+            }
+            // Best-effort: match the goal back to a project via the goalID
+            // stored on the autonomy goal record. The Conflict Center treats
+            // the first matching project as the source.
+            return project.identifier == projectID || project.name.contains(projectID.prefix(6))
+        }) ?? projects.first
+
+        let plan = RestoreIntoNewCopyPlanner.plan(
+            for: preview,
+            sourceProject: sourceProject,
+            candidateTasks: tasks,
+            candidateOperations: operations,
+            candidateAudits: allAudits
+        )
+
+        if plan.requiresLargeSizeApproval {
+            pendingLargeCopy = PendingLargeCopy(plan: plan, record: record, preview: preview)
+            statusText = "Workspace at \(RestoreIntoNewCopyMath.humanReadable(bytes: plan.estimatedSourceSizeBytes)) exceeds duplication threshold. Confirm before copying files."
+            return
+        }
+
+        applyRestorePlan(plan: plan, record: record, preview: preview, allowLargeCopy: false)
+    }
+
+    private func applyRestorePlan(
+        plan: RestoreIntoNewCopyPlan,
+        record: ConflictResolutionRecord,
+        preview: ConflictResolutionPreview,
+        allowLargeCopy: Bool
+    ) {
+        do {
+            let result = try RestoreIntoNewCopyApplier.apply(
+                plan: plan,
+                allowLargeCopy: allowLargeCopy,
+                modelContext: modelContext
+            )
+            try ConflictResolutionPreviewBuilder.apply(action: .restoreIntoNewCopy, to: record, using: preview)
+            try modelContext.save()
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            statusText = result.summary
+        } catch {
+            statusText = "Restore into new copy failed: \(error.localizedDescription)"
+        }
+    }
+
     private func runRecoveryDrill() {
         do {
             let report = try ConflictRecoveryDrill.seedAndRun(in: modelContext)
@@ -135,6 +285,30 @@ struct ConflictCenterView: View {
             statusText = report.summary
         } catch {
             statusText = "Recovery drill failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func archive(workspace: DivergenceWorkspaceSummary) {
+        do {
+            let archivedURL = try WorkspaceCopyManager.archive(workspace: workspace, modelContext: modelContext)
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            if let url = archivedURL {
+                statusText = "Archived \(workspace.name) to \(url.path)."
+            } else {
+                statusText = "Archived \(workspace.name); no filesystem copy was present."
+            }
+        } catch {
+            statusText = "Archive failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func delete(workspace: DivergenceWorkspaceSummary) {
+        do {
+            try WorkspaceCopyManager.delete(workspace: workspace, modelContext: modelContext)
+            Task { await AppServices.cloudSync.recordLocalSave() }
+            statusText = "Deleted \(workspace.name) and its cloned rows."
+        } catch {
+            statusText = "Delete failed: \(error.localizedDescription)"
         }
     }
 
@@ -177,6 +351,58 @@ private struct ConflictMetricTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: AgenicTheme.cornerRadius).stroke(.separator.opacity(0.28)))
+    }
+}
+
+private struct DivergenceWorkspaceRow: View {
+    let workspace: DivergenceWorkspaceSummary
+    let onArchive: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(workspace.name)
+                    .font(.subheadline.weight(.semibold))
+                if let conflictID = workspace.conflictID {
+                    Text("Conflict \(conflictID.prefix(8))")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                if let path = workspace.rootPath {
+                    Text(path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text("\(workspace.taskCount) task / \(workspace.auditCount) audit row(s)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            ConflictStatusBadge(
+                text: workspace.exists ? "on disk" : "no files",
+                tint: workspace.exists ? .green : .orange
+            )
+            Button {
+                onArchive()
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+            .help("Rename the sibling directory to __archived without deleting it.")
+            .accessibilityIdentifier("Conflicts.WorkspaceCopies.Archive.\(workspace.id)")
+
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .help("Remove the sibling directory and the cloned SwiftData rows.")
+            .accessibilityIdentifier("Conflicts.WorkspaceCopies.Delete.\(workspace.id)")
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -321,7 +547,7 @@ private struct ConflictPreviewCard: View {
     }
 
     private func isDisabled(_ action: ConflictResolutionAction) -> Bool {
-        if action.isRestoreLane {
+        if action == .restoreSnapshot {
             return preview.restoreSnapshotID == nil
         }
         if action == .merge {

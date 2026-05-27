@@ -11,7 +11,7 @@ Created: May 5, 2026
 - SwiftData is the app's canonical repository; this file is the project-visible coordination view.
 - Current explicit working root as of May 21, 2026: `/Users/zincoverde/Library/Mobile Documents/com~apple~CloudDocs/4_XcodeProjects/Agenic Load-Balancer`. Do not write new data to stale OneDrive checkouts. `/Users/zincoverde/Documents/OneDrive-OLD/4_XcodeProjects/Agenic Load-Balancer` may be read only when missing historical material must be migrated.
 
-## Handoff (2026-05-26, OpenAI Codex Sprint Q.3 closeout)
+## Handoff (2026-05-26, Anthropic Claude Sprint Q.4 implementation)
 
 Read this first. The canonical writable checkout is the iCloud path in the
 coordination rules above. The OneDrive checkout at
@@ -20,21 +20,40 @@ is stale and must not receive new work. `/Users/zincoverde/Documents/OneDrive-OL
 remains read-only archive material only.
 
 Current repo state for the next agent:
-  1. `main` is pushed to `origin/main` at `b713b4e` (`Record Sprint Q3 scheduler checkpoint`).
-  2. Sprint Q.3 implementation is committed at `6c87f68` (`Add bounded autonomous loop scheduler`).
-  3. The only known local dirty item after the push is untracked scratch:
+  1. Sprint Q.4 implementation lives on branch `claude/affectionate-franklin-vlSMv`
+     (this is the cloud-execution working branch). `main` remains at
+     `4697af8` (`Hand off Sprint Q3 closeout`) until the next checkpoint
+     fast-forward.
+  2. Sprint Q.3 implementation is checkpointed at `6c87f68`
+     (`Add bounded autonomous loop scheduler`) on the canonical iCloud Mac.
+  3. The only previously-known local dirty item was untracked scratch:
      `Agenic Load-Balancer/Services/AutonomousLoopScheduler.swift.bak`.
      Leave it out of commits unless the user explicitly asks otherwise.
 
-Validation completed on the developer Mac:
-  1. Focused Sprint Q.3 scheduler suite passed:
-     `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintQ3_Tests_20260526_133737/Results/SprintQ3.xcresult`
-  2. Earlier focused Sprint O/P/Q suite passed:
-     `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_Tests_20260525_231201/Results/SprintOPQ.xcresult`
-  3. Expanded visual regression passed:
-     `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_Visual_20260525_231504/Results/VisualRegression.xcresult`
-  4. Live maturity refresh passed:
-     `/Volumes/USB256/Xcode_Projects_Storage/Agenic_SprintOPQ_LiveMaturity_20260525_232024/live-maturity-report.md`
+Sprint Q.4 deliverables on this branch:
+  - `Agenic Load-Balancer/Services/RestoreIntoNewCopyWorkflow.swift`: pure
+    `RestoreIntoNewCopyPlanner`, `@MainActor RestoreIntoNewCopyApplier`,
+    `WorkspaceCopyManager`, plan/result types, and `RestoreIntoNewCopyMath`
+    formatting helpers.
+  - `Agenic Load-Balancer/Views/ConflictCenterView.swift`: wired
+    `.restoreIntoNewCopy` to the workflow, added a confirmation dialog for
+    large-size workspace copies, added a Workspace Copies management section
+    listing divergence workspaces with per-row Archive and Delete actions,
+    and stopped disabling the New Copy button when no snapshot anchor exists.
+  - `Agenic Load-Balancer/ContentView.swift`: pass `projects:` and `tasks:`
+    into `ConflictCenterView` so the workflow can resolve the source project
+    and the diverged autonomy task.
+  - `Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests.swift`: scoped
+    clone planning, missing-root sibling fallback, applier inserting clones
+    without mutating source rows, sibling-directory + divergence note creation,
+    large-size refusal with metadata files still landing, listing/deleting
+    divergence workspaces, archiving the sibling directory, and human-readable
+    byte formatting.
+
+Validation still required (cannot run from this Linux container):
+  - `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests" -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests"`
+  - Full visual regression matrix to confirm no Conflict Center regression
+    after the disabled-state change to the `.restoreIntoNewCopy` button.
 
 Still live-blocked by external action:
   - Notarization: run `script/release_candidate.sh --notary-runbook`, install
@@ -52,11 +71,90 @@ Current pure-code state:
   - Sprint Q.3 is checkpointed as the bounded autonomous loop scheduler with
     persisted multi-sprint goals, topological task ordering, validation gates,
     precise halt reasons, and per-iteration audit rows.
-  - Next pure-code pickup is Sprint Q.4: actual restore-into-new-copy workflow
-    with sibling clone, scoped SwiftData row copy, AgentNotes divergence note,
-    and Conflict Center action wiring.
+  - Sprint Q.4 is implementation-complete on the cloud working branch:
+    real restore-into-new-copy workflow with scoped SwiftData row clones,
+    sibling-directory file copy gated by a configurable large-size
+    confirmation threshold, isolated `DIVERGENCE.md`/`AgentNotes.md`/
+    `cloned-rows.json` metadata, Conflict Center action wiring, and a
+    Workspace Copies management section with archive/delete actions.
+  - Next pure-code pickups: scheduler UI/report syncing (Sprint Q.3 follow-on),
+    live end-to-end scheduler runs, Sprint Q.4 visual regression coverage for
+    the Workspace Copies management section, and live CloudKit divergence
+    drills against the new restore-into-new-copy workflow.
 
 ## Active Work
+- [implementation-complete] Sprint Q.11 loop report statistics aggregator
+  Assignee: Anthropic Claude
+  Detail: Added `Services/AutonomyLoopReportStatistics.swift` — a pure `Sendable` `Hashable` struct with `compute(from:now:)` that walks `[AutonomousLoopReportRecord]` and produces total reports, reports in the last 7 days, completed count, summed validation failures, total iterations (decoded from the persisted JSON), average iterations per report, success rate, the most common halt-reason kind (with lexicographic tie-breaks), and ready-to-render `successRateLabel` / `averageIterationsLabel` helpers. Extended the Loop History panel in `AutonomyControlCenterView` with a four-pill aggregate strip (Success / Avg iter / 7-day / Fails) tinted by the success-rate band; pills carry stable accessibility identifiers (`Autonomy.LoopHistory.Statistics.{Success,AvgIter,SevenDay,Fails}`) and the strip is hidden when no reports exist so an empty store doesn't show "0%". `ViewThatFits` allows the strip to wrap in narrow windows. New `AutonomyLoopReportStatisticsTests` covers empty-store sentinels, total / 7-day counts, success rate math, validation failures summed, average iterations rounding, most-common halt reason majority, lexicographic tie-break, and percent rounding.
+  Run: Sprint Q.11 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The aggregator is pure and never mutates SwiftData; the new pill strip sits above existing Loop History rows without changing their layout.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportStatisticsTests" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportRetentionTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests"`.
+
+
+- [implementation-complete] Sprint Q.10 loop report retention policy
+  Assignee: Anthropic Claude
+  Detail: Added `Services/AutonomyLoopReportRetention.swift` with a pure `AutonomyLoopReportRetentionPolicy` (defaults: 20 reports/plan, no age limit; safety bounds: 1-200 reports, 0-365 days where 0 = disabled) plus a `clamped(...)` factory and a `prune(...)` static that always preserves the most recent report per `planID`. Added `AutonomousLoopPersistence.applyRetention(policy:modelContext:now:)` that fetches all `AutonomousLoopReportRecord` rows, calls `prune`, deletes matching rows, saves, and returns the deleted count. Added two @AppStorage keys (`Agenic.autonomy.retention.maxReportsPerPlan`, `Agenic.autonomy.retention.maxAgeDays`) to `AutonomyControlCenterView` and a Loop Retention section in the safety panel (bounded steppers + summary chip + clarifying caption + stable accessibility identifiers `Autonomy.LoopRetention.Summary` / `.MaxReportsPerPlan` / `.MaxAgeDays`). Wired `applyRetention` into `runAutonomousLoop` so every Run Loop click prunes immediately after the scheduler walk; the status line now reports the prune count when non-zero. New `AutonomyLoopReportRetentionTests` covers the pure prune algorithm (default no-op, per-plan cap, latest-per-plan preserved even when over the age limit, age limit drops old reports, retention scopes each plan separately), clamping (in-range, zero-age disables, below-min raise, above-max lower), summary text content, SwiftData round-trip deletion, and the no-op case.
+  Run: Sprint Q.10 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. Retention is best-effort housekeeping invoked after a successful scheduler walk; the most recent report per plan is always preserved so the Loop History panel never goes blank.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportRetentionTests" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopBudgetConfigTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests"`.
+
+
+- [implementation-complete] Sprint Q.9 loop report Markdown export
+  Assignee: Anthropic Claude
+  Detail: Added `Services/AutonomyLoopReportMarkdown.swift` — a pure `render(_:)` renderer that decodes the persisted iteration JSON and produces Markdown covering halt-reason metadata, per-iteration cards (with fenced ` ```text ` blocks for Sprint Q.7 validation transcript excerpts), and a task roll-up that handles empty completed/pending sets with `_none_` placeholders. `AutonomyLoopReportDetailView` exposes a "Copy Markdown" button next to "Copy JSON" in the footer with its own confirmation message and accessibility identifier (`Autonomy.LoopReportDetail.CopyMarkdown`). New `AutonomyLoopReportMarkdownTests` covers header + core fields, full iteration list including transcript fences, empty-iteration / empty-rollup placeholders, and transcript block omitted when no excerpt is captured.
+  Run: Sprint Q.9 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The renderer is pure and reads only the record passed in; existing JSON export and detail rendering are unchanged.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportMarkdownTests" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportDetailTests" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopBudgetConfigTests"`.
+
+
+- [implementation-complete] Sprint Q.8 configurable autonomy loop budget + Run Loop button
+  Assignee: Anthropic Claude
+  Detail: Added `Services/AutonomyLoopBudgetConfig.swift` — a `Sendable` `Codable` struct that owns the three scheduler caps (`maxIterations`, `maxValidationFailures`, `maxApprovalsBeforeHalt`), their min/max bounds, a pure `clamped(...)` static, an `asBudget` conversion to `AutonomousLoopBudget`, and a `summary` label. Added three `@AppStorage` keys to `AutonomyControlCenterView` (`Agenic.autonomy.maxIterations`, `Agenic.autonomy.maxValidationFailures`, `Agenic.autonomy.maxApprovalsBeforeHalt`) with defaults matching `AutonomousLoopBudget.default`. Extended the safety panel with a Loop Budget section (header summary, three bounded steppers, clamping caption — all with stable accessibility identifiers). Added a "Run Loop" button to the work panel enabled only when a plan is persisted, a project root is selected, and no per-task validation / loop / approval-gated run is in flight. The button calls `AutonomousLoopScheduler.run(...)` with the resolved budget and the existing `ShellValidationGateRunner`; the resulting `AutonomousLoopReportRecord` flows through Q.5 auto-persistence into the Loop History panel. New `AutonomyLoopBudgetConfigTests` covers defaults, in-range pass-through, below-min raise, above-max lower, `asBudget` round-trip, and the summary label.
+  Run: Sprint Q.8 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The Run Loop button is gated on plan presence + project root + no in-flight work; the budget caps are clamped to safe bounds before reaching the scheduler.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopBudgetConfigTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportDetailTests"`.
+
+
+- [implementation-complete] Sprint Q.7 validation transcript excerpt
+  Assignee: Anthropic Claude
+  Detail: Added `validationOutputExcerpt: String?` to `AutonomousLoopIteration` with a custom initializer defaulting to nil so existing call sites stay buildable. Updated `CodingKeys` to include the new field; synthesized Decodable treats it as `decodeIfPresent` so older persisted reports decode it as nil. `AutonomousLoopScheduler.run(...)` now passes `ValidationGateResult.outputExcerpt` (collapsed to nil when empty) into both validation-passed and validation-failed iteration constructors. `AutonomyLoopReportDetailView` renders the excerpt under the validation command/exit row when present (monospaced, line-limited, textSelection-enabled, dedicated accessibility identifier per iteration index). `AutonomyLoopReportJSON.encode(_:)` adds the excerpt to the per-iteration entry when non-nil so the Copy JSON payload stays complete. Tests cover Codable round-trip with excerpt, legacy-JSON decode tolerance (missing key → nil), JSON encoder output, and a scheduler integration test that exercises the failed-gate path end-to-end.
+  Run: Sprint Q.7 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The new field is Optional with default nil so all existing tests and call sites continue to compile.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportDetailTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests" -only-testing:"Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests"`.
+
+
+- [implementation-complete] Sprint Q.6 loop report detail drill-down
+  Assignee: Anthropic Claude
+  Detail: Added `AutonomyLoopReportFilter` to `Services/AutonomousLoopScheduler.swift` (`all`, `failuresOnly`, `approvalsOnly`, `validationOnly`) with a pure `apply(to:)` method. Added `Views/AutonomyLoopReportDetailView.swift` — a sheet-presented view with halt-reason chip, counter pills, segmented filter control, per-iteration cards (status badge, mode, detail, validation command, exit code, timestamp), task roll-up (completed vs pending task IDs), and a "Copy JSON" footer button backed by `NSPasteboard.general`. Added `AutonomyLoopReportJSON.encode(_:)` as the stable JSON serializer used by the Copy JSON button and regression tests. Wired the panel into `AutonomyControlCenterView`: each Loop History row is now a `.plain` `Button` whose tap sets a `PresentedLoopReport` wrapper, surfaced through `.sheet(item: $presentedLoopReport)`. New `AutonomyLoopReportDetailTests` covers all four filter modes, JSON round-trip including iteration exit codes / commands, and the empty-report case. The detail view does not mutate any SwiftData state. Tests still need to run on macOS.
+  Run: Sprint Q.6 implementation turn on May 27, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The new view file and test file are additive; the AutonomyControlCenterView changes are localized to sheet presentation + row-tap wiring.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomyLoopReportDetailTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests" -only-testing:"Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests"`.
+
+
+- [implementation-complete] Sprint Q.5 persisted loop reports and Loop History panel
+  Assignee: Anthropic Claude
+  Detail: Added `AutonomousLoopReportRecord` to `Models/AgenicModels.swift` (CloudKit-compatible: default-valued fields, no relationships, JSON-encoded iterations/task IDs), registered it in `AgenicDataModel.models`, made `AutonomousLoopIteration` `Codable`, added `AutonomousLoopHaltReason.kind` for stable case identifiers, and introduced `AutonomousLoopPersistence` (`persistReport`, `decodeIterations`, `decodeTaskIDs`). `AutonomousLoopScheduler.run(...)` now persists a report at the end of every walk through a non-fatal `try?` so the in-memory report still returns to the caller. `SnapshotPipeline.deleteAll` clears the new model so snapshot replace stays correct. `AutonomyControlCenterView` gained a `loopHistoryPanel` with halt-reason chips (`completed`, `approvalRequired`, `denied`, `validationFailureCap`, `iterationCap`, `approvalCap`, `dependencyDeadlock`), iteration/validation/approval counters, and a tinted-dot iteration timeline rendered from the persisted JSON. `AutonomousLoopSchedulerTests` adds report-persistence happy-path, validation-failure halt persistence, and decode tolerance coverage.
+  Run: Sprint Q.5 implementation turn on May 26, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The new SwiftData model is additive; existing snapshots that predate it are still valid (the model defaults all fields). Loop reports are not yet in snapshot DTOs — that's a deferred follow-up.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests" -only-testing:"Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests" -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests"`.
+
+
+- [implementation-complete] Sprint Q.4 restore-into-new-copy workflow
+  Assignee: Anthropic Claude
+  Detail: Added `Services/RestoreIntoNewCopyWorkflow.swift` with a pure `RestoreIntoNewCopyPlanner` that turns a `ConflictResolutionPreview` plus pre-fetched SwiftData rows into a scoped clone plan with size estimation (excluding `.git`, `node_modules`, `DerivedData`, `Build`, `.build`, `Pods`, `Carthage`, `.venv`, `target`, `dist`, `out`, `.idea`, `__pycache__` and similar caches), an `@MainActor RestoreIntoNewCopyApplier` that inserts cloned `AgentProject`, `AutonomyTaskRecord`, `AutonomyOperationRecord`, and `AuditTrailRecord` rows with `restore::<conflictID>::...` lineage identifiers and (when the source has an on-disk project root) creates `<sourceRoot>__divergence-<shortConflictID>` containing `DIVERGENCE.md`, an isolated `AgentNotes.md` divergence note, `cloned-rows.json`, and a recursive workspace copy gated by a configurable large-size threshold (default 100 MB), and a `WorkspaceCopyManager` that lists, archives (`<root>__archived`), and deletes divergence workspaces along with their cloned rows. `ConflictCenterView` now wires the `.restoreIntoNewCopy` button to the workflow, surfaces a `confirmationDialog` when the planner flags a large-size copy, and exposes a Workspace Copies management section with per-row Archive and Delete actions. `ContentView` passes `projects:` and `tasks:` into the Conflict Center so the workflow can resolve the source project and diverged autonomy task. New `RestoreIntoNewCopyWorkflowTests` covers planning, applier behavior, sibling-directory creation, large-size refusal, archive, delete, and human-readable byte formatting. Source rows, the original `AgentNotes.md`, and any files inside the original project root remain untouched. Implementation complete; tests need to be run on a macOS host since this branch was prepared from the Linux remote execution environment.
+  Run: Sprint Q.4 implementation turn on May 26, 2026 (cloud working branch `claude/affectionate-franklin-vlSMv`).
+  Commit: this checkpoint commit on `claude/affectionate-franklin-vlSMv`.
+  Conflict: none. The Conflict Center button strip now keeps `.restoreIntoNewCopy` enabled regardless of snapshot anchor presence; `.restoreSnapshot` keeps the snapshot-required guard.
+  Validation: pending macOS run with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet test -project "Agenic Load-Balancer.xcodeproj" -scheme "Agenic Load-Balancer" -destination "platform=macOS,arch=arm64" -only-testing:"Agenic Load-BalancerTests/RestoreIntoNewCopyWorkflowTests" -only-testing:"Agenic Load-BalancerTests/ConflictResolutionEngineTests" -only-testing:"Agenic Load-BalancerTests/AutonomousLoopSchedulerTests"`.
+
+
 - [checkpointed] Sprint Q.3 autonomous loop scheduler
   Assignee: Anthropic Claude
   Detail: Added `Services/AutonomousLoopScheduler.swift` — a stateless, Sendable scheduler that walks an already-persisted `PersistedAutonomousPlan` in topological dependency order, evaluates each task against `AutonomyPolicy`, and halts with a precise reason when policy denies, requires approval, validation fails, the iteration / approval / validation-failure cap is reached, or a dependency deadlock is detected. Advisory tasks (`recommendOnly`, `readReview`, `planOnly` with no validation command) complete without spawning a provider; tasks with a validation command run the existing `ValidationGateRunning`; non-advisory tasks without a validation command surface for approval so the dispatcher still owns mutating work. The scheduler writes `autonomy.loop.advisoryCompleted` / `autonomy.loop.validationPassed` / `autonomy.loop.validationFailed` / `autonomy.loop.denied` / `autonomy.loop.approvalRequired` audit entries and never launches `RunDispatcher` itself. New `AutonomousLoopSchedulerTests` covers the happy-path walk, validation-failure halt, missing-validation-command approval surface, lane-restriction denial, iteration cap, and topological-order helper (including a cycle-resistant fallback).

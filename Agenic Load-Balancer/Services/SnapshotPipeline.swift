@@ -472,6 +472,7 @@ enum SnapshotPipeline {
         for record in try context.fetch(FetchDescriptor<ConflictResolutionRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<ValidationGateRecord>()) { context.delete(record) }
         for record in try context.fetch(FetchDescriptor<AuditTrailRecord>()) { context.delete(record) }
+        for record in try context.fetch(FetchDescriptor<AutonomousLoopReportRecord>()) { context.delete(record) }
         try context.save()
     }
 }

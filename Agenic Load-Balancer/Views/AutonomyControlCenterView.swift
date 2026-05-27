@@ -19,10 +19,16 @@ struct AutonomyControlCenterView: View {
     @AppStorage("Agenic.defaultTemporaryPath") private var appDefaultTemporaryPath = ""
     @AppStorage("Agenic.contextCompactionEnabled") private var appContextCompactionEnabled = true
     @AppStorage("Agenic.contextCompactionThresholdTokens") private var appContextCompactionThresholdTokens = 120_000
+    @AppStorage("Agenic.autonomy.maxIterations") private var loopMaxIterations = AutonomyLoopBudgetConfig.defaultMaxIterations
+    @AppStorage("Agenic.autonomy.maxValidationFailures") private var loopMaxValidationFailures = AutonomyLoopBudgetConfig.defaultMaxValidationFailures
+    @AppStorage("Agenic.autonomy.maxApprovalsBeforeHalt") private var loopMaxApprovalsBeforeHalt = AutonomyLoopBudgetConfig.defaultMaxApprovalsBeforeHalt
+    @AppStorage("Agenic.autonomy.retention.maxReportsPerPlan") private var retentionMaxReportsPerPlan = AutonomyLoopReportRetentionPolicy.defaultMaxReportsPerPlan
+    @AppStorage("Agenic.autonomy.retention.maxAgeDays") private var retentionMaxAgeDaysOrZero = AutonomyLoopReportRetentionPolicy.defaultMaxAgeDaysStorageValue
     @Query(sort: \AutonomyGoalRecord.updatedAt, order: .reverse) private var autonomyGoals: [AutonomyGoalRecord]
     @Query(sort: \AutonomyTaskRecord.updatedAt, order: .reverse) private var autonomyTasks: [AutonomyTaskRecord]
     @Query private var validationGates: [ValidationGateRecord]
     @Query(sort: \MachinePeerRecord.updatedAt, order: .reverse) private var machinePeers: [MachinePeerRecord]
+    @Query(sort: \AutonomousLoopReportRecord.endedAt, order: .reverse) private var loopReports: [AutonomousLoopReportRecord]
 
     let projects: [AgentProject]
     let providers: [AgentProviderProfile]
@@ -45,6 +51,8 @@ struct AutonomyControlCenterView: View {
     @State private var runningValidationTaskID: String?
     @State private var activeRun: ActiveAutonomyRun?
     @State private var dispatcher = RunDispatcher()
+    @State private var presentedLoopReport: PresentedLoopReport?
+    @State private var isRunningLoop = false
 
     init(
         projects: [AgentProject],
@@ -161,6 +169,9 @@ struct AutonomyControlCenterView: View {
                             if let draft {
                                 planPanel(draft)
                             }
+                            if !loopReports.isEmpty {
+                                loopHistoryPanel
+                            }
                         }
                         .frame(minWidth: 460, maxWidth: .infinity, alignment: .topLeading)
 
@@ -181,6 +192,9 @@ struct AutonomyControlCenterView: View {
                         safetyPanel
                         workPanel
                         syncPanel
+                        if !loopReports.isEmpty {
+                            loopHistoryPanel
+                        }
                     }
                 }
             }
@@ -196,6 +210,12 @@ struct AutonomyControlCenterView: View {
                     activeRun = nil
                     finalizeRunTask(taskID)
                 }
+            )
+        }
+        .sheet(item: $presentedLoopReport) { presented in
+            AutonomyLoopReportDetailView(
+                report: presented.report,
+                onClose: { presentedLoopReport = nil }
             )
         }
     }
@@ -421,9 +441,132 @@ struct AutonomyControlCenterView: View {
             ForEach(readiness.checks) { check in
                 ReadinessCheckRow(check: check)
             }
+            loopBudgetSection
+            loopRetentionSection
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.10: bound the persisted scheduler-report store so a
+    /// long-running developer doesn't accumulate thousands of rows.
+    /// Always preserves the most recent report per plan even when
+    /// retention thresholds drop other reports.
+    private var loopRetentionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Loop Retention", systemImage: "tray.full")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(resolvedRetentionPolicy.summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("Autonomy.LoopRetention.Summary")
+            }
+            Stepper(
+                value: $retentionMaxReportsPerPlan,
+                in: AutonomyLoopReportRetentionPolicy.minMaxReportsPerPlan...AutonomyLoopReportRetentionPolicy.maxMaxReportsPerPlan
+            ) {
+                HStack {
+                    Text("Max reports per plan")
+                    Spacer()
+                    Text("\(retentionMaxReportsPerPlan)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopRetention.MaxReportsPerPlan")
+            Stepper(
+                value: $retentionMaxAgeDaysOrZero,
+                in: AutonomyLoopReportRetentionPolicy.minMaxAgeDaysStorageValue...AutonomyLoopReportRetentionPolicy.maxMaxAgeDaysStorageValue
+            ) {
+                HStack {
+                    Text("Max age (days, 0 = no limit)")
+                    Spacer()
+                    Text(retentionMaxAgeDaysOrZero == 0 ? "off" : "\(retentionMaxAgeDaysOrZero)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopRetention.MaxAgeDays")
+            Text("Retention always preserves the most recent report per plan, then drops anything beyond the configured caps after the next loop walk.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var resolvedRetentionPolicy: AutonomyLoopReportRetentionPolicy {
+        AutonomyLoopReportRetentionPolicy.clamped(
+            maxReportsPerPlan: retentionMaxReportsPerPlan,
+            maxAgeDaysOrZero: retentionMaxAgeDaysOrZero
+        )
+    }
+
+    /// Sprint Q.8: user-configurable scheduler caps. Defaults match
+    /// `AutonomousLoopBudget.default`; UI clamps via
+    /// `AutonomyLoopBudgetConfig` so out-of-range writes can't bypass
+    /// the safety bounds.
+    private var loopBudgetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Loop Budget", systemImage: "gauge.with.dots.needle.bottom.50percent")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(resolvedBudgetConfig.summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("Autonomy.LoopBudget.Summary")
+            }
+            Stepper(
+                value: $loopMaxIterations,
+                in: AutonomyLoopBudgetConfig.minMaxIterations...AutonomyLoopBudgetConfig.maxMaxIterations
+            ) {
+                HStack {
+                    Text("Max iterations")
+                    Spacer()
+                    Text("\(loopMaxIterations)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxIterations")
+            Stepper(
+                value: $loopMaxValidationFailures,
+                in: AutonomyLoopBudgetConfig.minMaxValidationFailures...AutonomyLoopBudgetConfig.maxMaxValidationFailures
+            ) {
+                HStack {
+                    Text("Max validation failures")
+                    Spacer()
+                    Text("\(loopMaxValidationFailures)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxValidationFailures")
+            Stepper(
+                value: $loopMaxApprovalsBeforeHalt,
+                in: AutonomyLoopBudgetConfig.minMaxApprovalsBeforeHalt...AutonomyLoopBudgetConfig.maxMaxApprovalsBeforeHalt
+            ) {
+                HStack {
+                    Text("Max approvals before halt")
+                    Spacer()
+                    Text("\(loopMaxApprovalsBeforeHalt)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxApprovalsBeforeHalt")
+            Text("Bounds clamp out-of-range values to safe maxima before the scheduler runs.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var resolvedBudgetConfig: AutonomyLoopBudgetConfig {
+        AutonomyLoopBudgetConfig.clamped(
+            maxIterations: loopMaxIterations,
+            maxValidationFailures: loopMaxValidationFailures,
+            maxApprovalsBeforeHalt: loopMaxApprovalsBeforeHalt
+        )
     }
 
     private var laneSummaryPanel: some View {
@@ -483,10 +626,39 @@ struct AutonomyControlCenterView: View {
                         providerName: providerName(for: task.assignedProviderID)
                     )
                 }
+                runLoopButton
             }
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.8: invoke the autonomous loop scheduler against the
+    /// persisted plan. The scheduler only runs validation gates and
+    /// completes advisory tasks; it halts on the first approval-required
+    /// task so the dispatcher still owns mutating execution. The user-
+    /// configured budget caps come from `loopBudgetSection`.
+    @ViewBuilder
+    private var runLoopButton: some View {
+        let disabled = persistedPlan == nil
+            || (selectedProject?.rootPath ?? "").isEmpty
+            || runningValidationTaskID != nil
+            || isRunningLoop
+            || activeRun != nil
+        Button {
+            Task { await runAutonomousLoop() }
+        } label: {
+            Label(
+                isRunningLoop ? "Running Loop…" : "Run Loop",
+                systemImage: isRunningLoop ? "arrow.triangle.2.circlepath" : "play.fill"
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(disabled)
+        .help("Walk the persisted plan with the configured loop budget, running validation gates and halting on the first approval.")
+        .accessibilityIdentifier("Autonomy.LoopBudget.RunLoop")
     }
 
     @ViewBuilder
@@ -553,6 +725,112 @@ struct AutonomyControlCenterView: View {
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.5: render persisted scheduler reports so the user can
+    /// see the most recent loop walk, its halt reason, and a compact
+    /// iteration timeline. Reports are sorted by `endedAt` descending.
+    /// Sprint Q.11: prepend an aggregated statistics chip strip so the
+    /// user gets at-a-glance success-rate / volume / failure signals.
+    private var loopHistoryPanel: some View {
+        let recent = Array(loopReports.prefix(3))
+        let stats = AutonomyLoopReportStatistics.compute(from: loopReports)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Loop History")
+                    .font(.headline)
+                Spacer()
+                Text("\(loopReports.count) report(s)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("Autonomy.LoopHistory.Header")
+            loopStatisticsStrip(stats)
+            ForEach(recent, id: \.identifier) { report in
+                Button {
+                    presentedLoopReport = PresentedLoopReport(report: report)
+                } label: {
+                    AutonomyLoopReportRow(report: report)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Autonomy.LoopHistory.Open.\(report.identifier)")
+            }
+            if loopReports.count > recent.count {
+                Text("+\(loopReports.count - recent.count) older")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("Autonomy.LoopHistory")
+    }
+
+    /// Sprint Q.11: compact aggregate-metrics strip for the Loop
+    /// History header. Rendered as a row of tinted pills so the user
+    /// can compare success rate / volume / failure signals at a glance.
+    @ViewBuilder
+    private func loopStatisticsStrip(_ stats: AutonomyLoopReportStatistics) -> some View {
+        if stats.totalReports == 0 {
+            EmptyView()
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { statisticPills(stats) }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) { statisticPills(stats) }
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopHistory.Statistics")
+        }
+    }
+
+    @ViewBuilder
+    private func statisticPills(_ stats: AutonomyLoopReportStatistics) -> some View {
+        statisticPill(
+            label: "Success",
+            value: stats.successRateLabel,
+            tint: successTint(for: stats.successRate),
+            identifier: "Autonomy.LoopHistory.Statistics.Success"
+        )
+        statisticPill(
+            label: "Avg iter",
+            value: stats.averageIterationsLabel,
+            tint: .blue,
+            identifier: "Autonomy.LoopHistory.Statistics.AvgIter"
+        )
+        statisticPill(
+            label: "7-day",
+            value: "\(stats.reportsInLastSevenDays)",
+            tint: .teal,
+            identifier: "Autonomy.LoopHistory.Statistics.SevenDay"
+        )
+        statisticPill(
+            label: "Fails",
+            value: "\(stats.validationFailureCount)",
+            tint: stats.validationFailureCount > 0 ? .red : .secondary,
+            identifier: "Autonomy.LoopHistory.Statistics.Fails"
+        )
+    }
+
+    private func statisticPill(label: String, value: String, tint: Color, identifier: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption2)
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(tint.opacity(0.12), in: Capsule())
+        .foregroundStyle(tint)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func successTint(for rate: Double?) -> Color {
+        guard let rate else { return .secondary }
+        if rate >= 0.66 { return .green }
+        if rate >= 0.33 { return .orange }
+        return .red
     }
 
     @MainActor
@@ -719,6 +997,40 @@ struct AutonomyControlCenterView: View {
         }
     }
 
+    /// Sprint Q.8: invoke the autonomous loop scheduler against the
+    /// persisted plan with the user-configured budget. The scheduler
+    /// only runs validation gates and completes advisory tasks; it
+    /// halts on the first approval-required / denied / cap / deadlock
+    /// condition, so this entry point is safe to expose alongside the
+    /// existing per-task `Run Validation` button.
+    @MainActor
+    private func runAutonomousLoop() async {
+        guard let persistedPlan, let projectRoot = selectedProject?.rootPath, !projectRoot.isEmpty else {
+            statusText = "Persist a plan and select a project root before running the loop."
+            return
+        }
+        isRunningLoop = true
+        statusText = "Running autonomous loop…"
+        defer { isRunningLoop = false }
+
+        let scheduler = AutonomousLoopScheduler()
+        let report = await scheduler.run(
+            plan: persistedPlan,
+            policy: currentPolicy,
+            projectRootPath: projectRoot,
+            validationRunner: validationRunner,
+            budget: resolvedBudgetConfig.asBudget,
+            modelContext: modelContext
+        )
+        let pruned = AutonomousLoopPersistence.applyRetention(
+            policy: resolvedRetentionPolicy,
+            modelContext: modelContext
+        )
+        await AppServices.cloudSync.recordLocalSave()
+        let suffix = pruned > 0 ? " (pruned \(pruned) older report\(pruned == 1 ? "" : "s"))" : ""
+        statusText = "Loop halted: \(report.haltReason.label)\(suffix)"
+    }
+
     @MainActor
     private func finalizeRunTask(_ taskID: String) {
         let status: CoordinationStatus?
@@ -830,6 +1142,16 @@ struct AutonomyControlCenterView: View {
         case .divergent, .needsSnapshotVerification: .blocked
         }
     }
+}
+
+/// Sprint Q.6: identifiable wrapper that lets `.sheet(item:)` present
+/// the `AutonomousLoopReportDetailView` keyed on the persisted record
+/// identifier. The SwiftData `@Model` class is not `Identifiable` on
+/// its own — wrapping it here keeps the model file untouched.
+private struct PresentedLoopReport: Identifiable {
+    let report: AutonomousLoopReportRecord
+
+    var id: String { report.identifier }
 }
 
 private struct ActiveAutonomyRun: Identifiable {
@@ -969,6 +1291,102 @@ private struct StoredAutonomyTaskRow: View {
             return .blue
         case .planned, .claimed, .none:
             return .orange
+        }
+    }
+}
+
+/// Sprint Q.5: renders a single `AutonomousLoopReportRecord` with a
+/// halt-reason chip and a compact iteration timeline.
+private struct AutonomyLoopReportRow: View {
+    let report: AutonomousLoopReportRecord
+
+    private var iterations: [AutonomousLoopIteration] {
+        AutonomousLoopPersistence.decodeIterations(report.iterationsJSON)
+    }
+
+    private var chipTint: Color {
+        switch report.haltReasonKind {
+        case "completed": .green
+        case "approvalRequired", "approvalCap": .blue
+        case "denied", "validationFailureCap", "dependencyDeadlock": .red
+        case "iterationCap": .orange
+        default: .secondary
+        }
+    }
+
+    private var chipLabel: String {
+        switch report.haltReasonKind {
+        case "completed": "Completed"
+        case "approvalRequired": "Approval"
+        case "denied": "Denied"
+        case "validationFailureCap": "Validation"
+        case "iterationCap": "Iteration cap"
+        case "approvalCap": "Approval cap"
+        case "dependencyDeadlock": "Dependency"
+        default: report.haltReasonKind.capitalized
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Plan \(report.planID.prefix(8))")
+                    .font(.subheadline.weight(.semibold))
+                    .monospaced()
+                Spacer()
+                Text(chipLabel)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(chipTint.opacity(0.16), in: Capsule())
+                    .overlay(Capsule().stroke(chipTint.opacity(0.55), lineWidth: 1))
+                    .foregroundStyle(chipTint)
+                    .accessibilityIdentifier("Autonomy.LoopHistory.Chip.\(report.identifier)")
+            }
+            Text(report.haltReasonLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack(spacing: 12) {
+                Label("\(iterations.count) iter", systemImage: "list.number")
+                Label("\(report.validationFailureCount) fail", systemImage: "xmark.octagon")
+                    .foregroundStyle(report.validationFailureCount > 0 ? .red : .secondary)
+                Label("\(report.approvalSurfaceCount) approval", systemImage: "checkmark.shield")
+                    .foregroundStyle(report.approvalSurfaceCount > 0 ? .blue : .secondary)
+                Spacer()
+                Text(report.endedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            if !iterations.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(iterations.prefix(12)) { iteration in
+                        Circle()
+                            .fill(iterationTint(for: iteration.status))
+                            .frame(width: 8, height: 8)
+                            .help("\(iteration.taskTitle): \(iteration.detail)")
+                    }
+                    if iterations.count > 12 {
+                        Text("+\(iterations.count - 12)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("Autonomy.LoopHistory.Report.\(report.identifier)")
+    }
+
+    private func iterationTint(for status: AutonomousLoopIteration.Status) -> Color {
+        switch status {
+        case .completedAdvisory: .teal
+        case .validationPassed: .green
+        case .validationFailed: .red
+        case .approvalRequired: .blue
+        case .denied: .red
+        case .dependenciesUnresolved: .orange
         }
     }
 }

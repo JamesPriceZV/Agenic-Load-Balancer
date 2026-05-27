@@ -429,4 +429,148 @@ struct AutonomousLoopSchedulerTests {
         // flag the dependency-deadlock branch.
         #expect(ordered == ["a", "b"])
     }
+
+    // MARK: - Sprint Q.5: persisted report round-trip
+
+    @MainActor
+    @Test func runPersistsReportToSwiftData() async throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 1_800_004_000)
+        let plan = Self.seedPlan(
+            modelContext: context,
+            finalValidationCommand: "echo execute"
+        )
+        let scheduler = AutonomousLoopScheduler(now: { now })
+        let validationRunner = ScriptedValidationGateRunner(
+            result: ValidationGateResult(
+                command: "echo",
+                exitCode: 0,
+                outputExcerpt: "",
+                startedAt: now,
+                endedAt: now
+            )
+        )
+
+        let report = await scheduler.run(
+            plan: plan,
+            policy: Self.makePolicy(),
+            projectRootPath: "/tmp/uitest",
+            validationRunner: validationRunner,
+            budget: AutonomousLoopBudget(
+                maxIterations: 8,
+                maxValidationFailures: 1,
+                maxApprovalsBeforeHalt: 1
+            ),
+            modelContext: context
+        )
+
+        let persisted = try context.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        let record = try #require(persisted.first)
+        #expect(record.planID == "loop-plan-1")
+        #expect(record.goalID == "loop-goal-1")
+        #expect(record.haltReasonKind == "completed")
+        #expect(record.iterationsJSON != "[]")
+        #expect(record.validationFailureCount == report.validationFailureCount)
+        #expect(record.approvalSurfaceCount == report.approvalSurfaceCount)
+
+        let decoded = AutonomousLoopPersistence.decodeIterations(record.iterationsJSON)
+        #expect(decoded.count == report.iterations.count)
+        #expect(decoded.map(\.status) == report.iterations.map(\.status))
+
+        let completed = AutonomousLoopPersistence.decodeTaskIDs(record.completedTaskIDsJSON)
+        #expect(completed == report.completedTaskIDs)
+        let pending = AutonomousLoopPersistence.decodeTaskIDs(record.pendingTaskIDsJSON)
+        #expect(pending == report.pendingTaskIDs)
+    }
+
+    @MainActor
+    @Test func persistReportEncodesHaltReasonKindAndLabel() async throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 1_800_004_500)
+        let plan = Self.seedPlan(
+            modelContext: context,
+            finalValidationCommand: "echo failing"
+        )
+        let scheduler = AutonomousLoopScheduler(now: { now })
+        let validationRunner = ScriptedValidationGateRunner(
+            result: ValidationGateResult(
+                command: "echo",
+                exitCode: 1,
+                outputExcerpt: "fail",
+                startedAt: now,
+                endedAt: now
+            )
+        )
+
+        _ = await scheduler.run(
+            plan: plan,
+            policy: Self.makePolicy(),
+            projectRootPath: "/tmp/uitest",
+            validationRunner: validationRunner,
+            budget: AutonomousLoopBudget(
+                maxIterations: 8,
+                maxValidationFailures: 1,
+                maxApprovalsBeforeHalt: 1
+            ),
+            modelContext: context
+        )
+
+        let persisted = try context.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        let record = try #require(persisted.first)
+        #expect(record.haltReasonKind == "validationFailureCap")
+        #expect(record.haltReasonLabel.contains("Validation failure cap"))
+        #expect(record.validationFailureCount == 1)
+    }
+
+    @MainActor
+    @Test func decodeIterationsReturnsEmptyForMalformedJSON() {
+        let iterations = AutonomousLoopPersistence.decodeIterations("not-json")
+        #expect(iterations.isEmpty)
+        let none = AutonomousLoopPersistence.decodeIterations("[]")
+        #expect(none.isEmpty)
+    }
+
+    // MARK: - Sprint Q.7: validation output excerpt is captured end-to-end
+
+    @MainActor
+    @Test func runCapturesValidationOutputExcerptForFailedGate() async throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 1_800_005_000)
+        let plan = Self.seedPlan(
+            modelContext: context,
+            finalValidationCommand: "swift test"
+        )
+        let scheduler = AutonomousLoopScheduler(now: { now })
+        let validationRunner = ScriptedValidationGateRunner(
+            result: ValidationGateResult(
+                command: "swift test",
+                exitCode: 1,
+                outputExcerpt: "XCTAssertEqual failed: \"a\" is not equal to \"b\"",
+                startedAt: now,
+                endedAt: now
+            )
+        )
+
+        _ = await scheduler.run(
+            plan: plan,
+            policy: Self.makePolicy(),
+            projectRootPath: "/tmp/uitest",
+            validationRunner: validationRunner,
+            budget: AutonomousLoopBudget(
+                maxIterations: 8,
+                maxValidationFailures: 1,
+                maxApprovalsBeforeHalt: 1
+            ),
+            modelContext: context
+        )
+
+        let persisted = try context.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        let record = try #require(persisted.first)
+        let iterations = AutonomousLoopPersistence.decodeIterations(record.iterationsJSON)
+        let failed = try #require(iterations.first(where: { $0.status == .validationFailed }))
+        #expect(failed.validationOutputExcerpt?.contains("XCTAssertEqual failed") == true)
+    }
 }
