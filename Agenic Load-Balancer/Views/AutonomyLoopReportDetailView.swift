@@ -230,6 +230,13 @@ struct AutonomyLoopReportDetailView: View {
             }
             Spacer()
             Button {
+                copyReportMarkdown()
+            } label: {
+                Label("Copy Markdown", systemImage: "doc.richtext")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("Autonomy.LoopReportDetail.CopyMarkdown")
+            Button {
                 copyReportJSON()
             } label: {
                 Label("Copy JSON", systemImage: "doc.on.clipboard")
@@ -246,7 +253,14 @@ struct AutonomyLoopReportDetailView: View {
         let json = AutonomyLoopReportJSON.encode(report)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(json, forType: .string)
-        copyConfirmation = "Copied \(json.count) chars to clipboard"
+        copyConfirmation = "Copied \(json.count) chars of JSON to clipboard"
+    }
+
+    private func copyReportMarkdown() {
+        let markdown = AutonomyLoopReportMarkdown.render(report)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+        copyConfirmation = "Copied \(markdown.count) chars of Markdown to clipboard"
     }
 }
 
