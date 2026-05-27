@@ -46,6 +46,7 @@ struct AutonomyControlCenterView: View {
     @State private var runningValidationTaskID: String?
     @State private var activeRun: ActiveAutonomyRun?
     @State private var dispatcher = RunDispatcher()
+    @State private var presentedLoopReport: PresentedLoopReport?
 
     init(
         projects: [AgentProject],
@@ -203,6 +204,12 @@ struct AutonomyControlCenterView: View {
                     activeRun = nil
                     finalizeRunTask(taskID)
                 }
+            )
+        }
+        .sheet(item: $presentedLoopReport) { presented in
+            AutonomyLoopReportDetailView(
+                report: presented.report,
+                onClose: { presentedLoopReport = nil }
             )
         }
     }
@@ -578,7 +585,13 @@ struct AutonomyControlCenterView: View {
             }
             .accessibilityIdentifier("Autonomy.LoopHistory.Header")
             ForEach(recent, id: \.identifier) { report in
-                AutonomyLoopReportRow(report: report)
+                Button {
+                    presentedLoopReport = PresentedLoopReport(report: report)
+                } label: {
+                    AutonomyLoopReportRow(report: report)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Autonomy.LoopHistory.Open.\(report.identifier)")
             }
             if loopReports.count > recent.count {
                 Text("+\(loopReports.count - recent.count) older")
@@ -866,6 +879,16 @@ struct AutonomyControlCenterView: View {
         case .divergent, .needsSnapshotVerification: .blocked
         }
     }
+}
+
+/// Sprint Q.6: identifiable wrapper that lets `.sheet(item:)` present
+/// the `AutonomousLoopReportDetailView` keyed on the persisted record
+/// identifier. The SwiftData `@Model` class is not `Identifiable` on
+/// its own — wrapping it here keeps the model file untouched.
+private struct PresentedLoopReport: Identifiable {
+    let report: AutonomousLoopReportRecord
+
+    var id: String { report.identifier }
 }
 
 private struct ActiveAutonomyRun: Identifiable {

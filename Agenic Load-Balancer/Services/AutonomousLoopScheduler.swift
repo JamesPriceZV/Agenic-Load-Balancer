@@ -654,3 +654,45 @@ extension AutonomousLoopRunReport {
         }
     }
 }
+
+/// Sprint Q.6: a filter applied to the persisted iteration list when
+/// the user drills into a `AutonomousLoopReportRecord` in the loop
+/// detail sheet. The filter is pure and testable on its own — UI code
+/// only needs to render the result.
+enum AutonomyLoopReportFilter: String, CaseIterable, Identifiable, Sendable, Hashable {
+    case all
+    case failuresOnly
+    case approvalsOnly
+    case validationOnly
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all: "All"
+        case .failuresOnly: "Failures"
+        case .approvalsOnly: "Approvals"
+        case .validationOnly: "Validation"
+        }
+    }
+
+    func apply(to iterations: [AutonomousLoopIteration]) -> [AutonomousLoopIteration] {
+        switch self {
+        case .all:
+            return iterations
+        case .failuresOnly:
+            return iterations.filter { iteration in
+                iteration.status == .validationFailed ||
+                    iteration.status == .denied ||
+                    iteration.status == .dependenciesUnresolved
+            }
+        case .approvalsOnly:
+            return iterations.filter { $0.status == .approvalRequired }
+        case .validationOnly:
+            return iterations.filter { iteration in
+                iteration.status == .validationPassed ||
+                    iteration.status == .validationFailed
+            }
+        }
+    }
+}
