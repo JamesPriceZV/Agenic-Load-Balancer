@@ -19,6 +19,9 @@ struct AutonomyControlCenterView: View {
     @AppStorage("Agenic.defaultTemporaryPath") private var appDefaultTemporaryPath = ""
     @AppStorage("Agenic.contextCompactionEnabled") private var appContextCompactionEnabled = true
     @AppStorage("Agenic.contextCompactionThresholdTokens") private var appContextCompactionThresholdTokens = 120_000
+    @AppStorage("Agenic.autonomy.maxIterations") private var loopMaxIterations = AutonomyLoopBudgetConfig.defaultMaxIterations
+    @AppStorage("Agenic.autonomy.maxValidationFailures") private var loopMaxValidationFailures = AutonomyLoopBudgetConfig.defaultMaxValidationFailures
+    @AppStorage("Agenic.autonomy.maxApprovalsBeforeHalt") private var loopMaxApprovalsBeforeHalt = AutonomyLoopBudgetConfig.defaultMaxApprovalsBeforeHalt
     @Query(sort: \AutonomyGoalRecord.updatedAt, order: .reverse) private var autonomyGoals: [AutonomyGoalRecord]
     @Query(sort: \AutonomyTaskRecord.updatedAt, order: .reverse) private var autonomyTasks: [AutonomyTaskRecord]
     @Query private var validationGates: [ValidationGateRecord]
@@ -47,6 +50,7 @@ struct AutonomyControlCenterView: View {
     @State private var activeRun: ActiveAutonomyRun?
     @State private var dispatcher = RunDispatcher()
     @State private var presentedLoopReport: PresentedLoopReport?
+    @State private var isRunningLoop = false
 
     init(
         projects: [AgentProject],
@@ -435,9 +439,77 @@ struct AutonomyControlCenterView: View {
             ForEach(readiness.checks) { check in
                 ReadinessCheckRow(check: check)
             }
+            loopBudgetSection
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.8: user-configurable scheduler caps. Defaults match
+    /// `AutonomousLoopBudget.default`; UI clamps via
+    /// `AutonomyLoopBudgetConfig` so out-of-range writes can't bypass
+    /// the safety bounds.
+    private var loopBudgetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Loop Budget", systemImage: "gauge.with.dots.needle.bottom.50percent")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(resolvedBudgetConfig.summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("Autonomy.LoopBudget.Summary")
+            }
+            Stepper(
+                value: $loopMaxIterations,
+                in: AutonomyLoopBudgetConfig.minMaxIterations...AutonomyLoopBudgetConfig.maxMaxIterations
+            ) {
+                HStack {
+                    Text("Max iterations")
+                    Spacer()
+                    Text("\(loopMaxIterations)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxIterations")
+            Stepper(
+                value: $loopMaxValidationFailures,
+                in: AutonomyLoopBudgetConfig.minMaxValidationFailures...AutonomyLoopBudgetConfig.maxMaxValidationFailures
+            ) {
+                HStack {
+                    Text("Max validation failures")
+                    Spacer()
+                    Text("\(loopMaxValidationFailures)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxValidationFailures")
+            Stepper(
+                value: $loopMaxApprovalsBeforeHalt,
+                in: AutonomyLoopBudgetConfig.minMaxApprovalsBeforeHalt...AutonomyLoopBudgetConfig.maxMaxApprovalsBeforeHalt
+            ) {
+                HStack {
+                    Text("Max approvals before halt")
+                    Spacer()
+                    Text("\(loopMaxApprovalsBeforeHalt)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopBudget.MaxApprovalsBeforeHalt")
+            Text("Bounds clamp out-of-range values to safe maxima before the scheduler runs.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var resolvedBudgetConfig: AutonomyLoopBudgetConfig {
+        AutonomyLoopBudgetConfig.clamped(
+            maxIterations: loopMaxIterations,
+            maxValidationFailures: loopMaxValidationFailures,
+            maxApprovalsBeforeHalt: loopMaxApprovalsBeforeHalt
+        )
     }
 
     private var laneSummaryPanel: some View {
@@ -497,10 +569,39 @@ struct AutonomyControlCenterView: View {
                         providerName: providerName(for: task.assignedProviderID)
                     )
                 }
+                runLoopButton
             }
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.8: invoke the autonomous loop scheduler against the
+    /// persisted plan. The scheduler only runs validation gates and
+    /// completes advisory tasks; it halts on the first approval-required
+    /// task so the dispatcher still owns mutating execution. The user-
+    /// configured budget caps come from `loopBudgetSection`.
+    @ViewBuilder
+    private var runLoopButton: some View {
+        let disabled = persistedPlan == nil
+            || (selectedProject?.rootPath ?? "").isEmpty
+            || runningValidationTaskID != nil
+            || isRunningLoop
+            || activeRun != nil
+        Button {
+            Task { await runAutonomousLoop() }
+        } label: {
+            Label(
+                isRunningLoop ? "Running Loop…" : "Run Loop",
+                systemImage: isRunningLoop ? "arrow.triangle.2.circlepath" : "play.fill"
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(disabled)
+        .help("Walk the persisted plan with the configured loop budget, running validation gates and halting on the first approval.")
+        .accessibilityIdentifier("Autonomy.LoopBudget.RunLoop")
     }
 
     @ViewBuilder
@@ -766,6 +867,35 @@ struct AutonomyControlCenterView: View {
         } catch {
             statusText = error.localizedDescription
         }
+    }
+
+    /// Sprint Q.8: invoke the autonomous loop scheduler against the
+    /// persisted plan with the user-configured budget. The scheduler
+    /// only runs validation gates and completes advisory tasks; it
+    /// halts on the first approval-required / denied / cap / deadlock
+    /// condition, so this entry point is safe to expose alongside the
+    /// existing per-task `Run Validation` button.
+    @MainActor
+    private func runAutonomousLoop() async {
+        guard let persistedPlan, let projectRoot = selectedProject?.rootPath, !projectRoot.isEmpty else {
+            statusText = "Persist a plan and select a project root before running the loop."
+            return
+        }
+        isRunningLoop = true
+        statusText = "Running autonomous loop…"
+        defer { isRunningLoop = false }
+
+        let scheduler = AutonomousLoopScheduler()
+        let report = await scheduler.run(
+            plan: persistedPlan,
+            policy: currentPolicy,
+            projectRootPath: projectRoot,
+            validationRunner: validationRunner,
+            budget: resolvedBudgetConfig.asBudget,
+            modelContext: modelContext
+        )
+        await AppServices.cloudSync.recordLocalSave()
+        statusText = "Loop halted: \(report.haltReason.label)"
     }
 
     @MainActor
