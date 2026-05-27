@@ -22,6 +22,8 @@ struct AutonomyControlCenterView: View {
     @AppStorage("Agenic.autonomy.maxIterations") private var loopMaxIterations = AutonomyLoopBudgetConfig.defaultMaxIterations
     @AppStorage("Agenic.autonomy.maxValidationFailures") private var loopMaxValidationFailures = AutonomyLoopBudgetConfig.defaultMaxValidationFailures
     @AppStorage("Agenic.autonomy.maxApprovalsBeforeHalt") private var loopMaxApprovalsBeforeHalt = AutonomyLoopBudgetConfig.defaultMaxApprovalsBeforeHalt
+    @AppStorage("Agenic.autonomy.retention.maxReportsPerPlan") private var retentionMaxReportsPerPlan = AutonomyLoopReportRetentionPolicy.defaultMaxReportsPerPlan
+    @AppStorage("Agenic.autonomy.retention.maxAgeDays") private var retentionMaxAgeDaysOrZero = AutonomyLoopReportRetentionPolicy.defaultMaxAgeDaysStorageValue
     @Query(sort: \AutonomyGoalRecord.updatedAt, order: .reverse) private var autonomyGoals: [AutonomyGoalRecord]
     @Query(sort: \AutonomyTaskRecord.updatedAt, order: .reverse) private var autonomyTasks: [AutonomyTaskRecord]
     @Query private var validationGates: [ValidationGateRecord]
@@ -440,9 +442,64 @@ struct AutonomyControlCenterView: View {
                 ReadinessCheckRow(check: check)
             }
             loopBudgetSection
+            loopRetentionSection
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Sprint Q.10: bound the persisted scheduler-report store so a
+    /// long-running developer doesn't accumulate thousands of rows.
+    /// Always preserves the most recent report per plan even when
+    /// retention thresholds drop other reports.
+    private var loopRetentionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Loop Retention", systemImage: "tray.full")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(resolvedRetentionPolicy.summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("Autonomy.LoopRetention.Summary")
+            }
+            Stepper(
+                value: $retentionMaxReportsPerPlan,
+                in: AutonomyLoopReportRetentionPolicy.minMaxReportsPerPlan...AutonomyLoopReportRetentionPolicy.maxMaxReportsPerPlan
+            ) {
+                HStack {
+                    Text("Max reports per plan")
+                    Spacer()
+                    Text("\(retentionMaxReportsPerPlan)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopRetention.MaxReportsPerPlan")
+            Stepper(
+                value: $retentionMaxAgeDaysOrZero,
+                in: AutonomyLoopReportRetentionPolicy.minMaxAgeDaysStorageValue...AutonomyLoopReportRetentionPolicy.maxMaxAgeDaysStorageValue
+            ) {
+                HStack {
+                    Text("Max age (days, 0 = no limit)")
+                    Spacer()
+                    Text(retentionMaxAgeDaysOrZero == 0 ? "off" : "\(retentionMaxAgeDaysOrZero)")
+                        .font(.callout.monospacedDigit())
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopRetention.MaxAgeDays")
+            Text("Retention always preserves the most recent report per plan, then drops anything beyond the configured caps after the next loop walk.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var resolvedRetentionPolicy: AutonomyLoopReportRetentionPolicy {
+        AutonomyLoopReportRetentionPolicy.clamped(
+            maxReportsPerPlan: retentionMaxReportsPerPlan,
+            maxAgeDaysOrZero: retentionMaxAgeDaysOrZero
+        )
     }
 
     /// Sprint Q.8: user-configurable scheduler caps. Defaults match
@@ -894,8 +951,13 @@ struct AutonomyControlCenterView: View {
             budget: resolvedBudgetConfig.asBudget,
             modelContext: modelContext
         )
+        let pruned = AutonomousLoopPersistence.applyRetention(
+            policy: resolvedRetentionPolicy,
+            modelContext: modelContext
+        )
         await AppServices.cloudSync.recordLocalSave()
-        statusText = "Loop halted: \(report.haltReason.label)"
+        let suffix = pruned > 0 ? " (pruned \(pruned) older report\(pruned == 1 ? "" : "s"))" : ""
+        statusText = "Loop halted: \(report.haltReason.label)\(suffix)"
     }
 
     @MainActor

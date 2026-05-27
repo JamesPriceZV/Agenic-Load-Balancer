@@ -651,6 +651,39 @@ enum AutonomousLoopPersistence {
         return (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
+    /// Sprint Q.10: prune persisted loop reports according to the
+    /// retention policy. Always preserves the most recent report per
+    /// plan; otherwise drops reports beyond `maxReportsPerPlan` or
+    /// older than `maxAgeDays`. Returns the count of deleted records
+    /// so the UI can confirm what happened. Failures are non-fatal —
+    /// retention is best-effort housekeeping, not load-bearing work.
+    @discardableResult
+    static func applyRetention(
+        policy: AutonomyLoopReportRetentionPolicy,
+        modelContext: ModelContext,
+        now: Date = Date()
+    ) -> Int {
+        let reports: [AutonomousLoopReportRecord]
+        do {
+            reports = try modelContext.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        } catch {
+            return 0
+        }
+        let ids = Set(AutonomyLoopReportRetentionPolicy.prune(
+            reports: reports,
+            policy: policy,
+            now: now
+        ))
+        guard !ids.isEmpty else { return 0 }
+        var deleted = 0
+        for record in reports where ids.contains(record.identifier) {
+            modelContext.delete(record)
+            deleted += 1
+        }
+        try? modelContext.save()
+        return deleted
+    }
+
     private static func encodeIterations(_ iterations: [AutonomousLoopIteration]) -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
