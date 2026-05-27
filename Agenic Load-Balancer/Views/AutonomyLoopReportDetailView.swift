@@ -289,6 +289,17 @@ private struct AutonomyLoopIterationCard: View {
                             .foregroundStyle(exit == 0 ? .green : .red)
                     }
                 }
+                if let excerpt = iteration.validationOutputExcerpt, !excerpt.isEmpty {
+                    Text(excerpt)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(6)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+                        .accessibilityIdentifier("Autonomy.LoopReportDetail.Iteration.\(iteration.index).Output")
+                }
             }
             HStack(spacing: 8) {
                 Label(iteration.mode, systemImage: "gearshape.2")
@@ -367,6 +378,9 @@ enum AutonomyLoopReportJSON {
             }
             if let exit = iteration.validationExitCode {
                 entry["validationExitCode"] = exit
+            }
+            if let excerpt = iteration.validationOutputExcerpt {
+                entry["validationOutputExcerpt"] = excerpt
             }
             return entry
         }

@@ -75,12 +75,43 @@ struct AutonomousLoopIteration: Sendable, Hashable, Identifiable, Codable {
     let detail: String
     let validationCommand: String?
     let validationExitCode: Int32?
+    /// Sprint Q.7: captured `ValidationGateResult.outputExcerpt` so the
+    /// Loop Report Detail drill-down can show why a gate failed without
+    /// re-running the command. Optional + default-nil so older persisted
+    /// reports (and existing tests/call sites) keep working.
+    let validationOutputExcerpt: String?
     let occurredAt: Date
 
     var id: String { "\(index):\(taskID)" }
 
+    init(
+        index: Int,
+        taskID: String,
+        taskTitle: String,
+        mode: String,
+        status: Status,
+        detail: String,
+        validationCommand: String? = nil,
+        validationExitCode: Int32? = nil,
+        validationOutputExcerpt: String? = nil,
+        occurredAt: Date
+    ) {
+        self.index = index
+        self.taskID = taskID
+        self.taskTitle = taskTitle
+        self.mode = mode
+        self.status = status
+        self.detail = detail
+        self.validationCommand = validationCommand
+        self.validationExitCode = validationExitCode
+        self.validationOutputExcerpt = validationOutputExcerpt
+        self.occurredAt = occurredAt
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case index, taskID, taskTitle, mode, status, detail, validationCommand, validationExitCode, occurredAt
+        case index, taskID, taskTitle, mode, status, detail,
+             validationCommand, validationExitCode,
+             validationOutputExcerpt, occurredAt
     }
 }
 
@@ -417,6 +448,7 @@ struct AutonomousLoopScheduler: Sendable {
                             detail: "Validation gate passed.",
                             validationCommand: command,
                             validationExitCode: result.exitCode,
+                            validationOutputExcerpt: result.outputExcerpt.isEmpty ? nil : result.outputExcerpt,
                             occurredAt: gateAt
                         )
                     )
@@ -442,6 +474,7 @@ struct AutonomousLoopScheduler: Sendable {
                             detail: "Validation gate failed; exit \(result.exitCode).",
                             validationCommand: command,
                             validationExitCode: result.exitCode,
+                            validationOutputExcerpt: result.outputExcerpt.isEmpty ? nil : result.outputExcerpt,
                             occurredAt: gateAt
                         )
                     )

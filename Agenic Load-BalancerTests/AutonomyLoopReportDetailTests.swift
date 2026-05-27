@@ -169,4 +169,96 @@ struct AutonomyLoopReportDetailTests {
         let completed = try #require(parsed["completedTaskIDs"] as? [String])
         #expect(completed.isEmpty)
     }
+
+    // MARK: - Sprint Q.7: validation output excerpt persistence
+
+    @Test func iterationDecodesValidationOutputExcerptWhenPresent() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let iteration = AutonomousLoopIteration(
+            index: 0,
+            taskID: "task-output",
+            taskTitle: "Task with output",
+            mode: AgentExecutionMode.testBuild.rawValue,
+            status: .validationFailed,
+            detail: "failed",
+            validationCommand: "swift test",
+            validationExitCode: 1,
+            validationOutputExcerpt: "error: undefined symbol _foo",
+            occurredAt: Date(timeIntervalSince1970: 5_000)
+        )
+        let data = try encoder.encode([iteration])
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        let decoded = AutonomousLoopPersistence.decodeIterations(json)
+        let first = try #require(decoded.first)
+        #expect(first.validationOutputExcerpt == "error: undefined symbol _foo")
+    }
+
+    @Test func iterationDecodesGracefullyWhenValidationOutputExcerptIsMissing() throws {
+        // Old persisted reports won't have the new key. Synthesized
+        // Decodable conformance must treat it as nil rather than throw.
+        let legacyJSON = """
+        [
+          {
+            "index": 0,
+            "taskID": "task-legacy",
+            "taskTitle": "Legacy task",
+            "mode": "testBuild",
+            "status": "validationPassed",
+            "detail": "passed",
+            "validationCommand": "echo ok",
+            "validationExitCode": 0,
+            "occurredAt": "1970-01-01T00:01:00Z"
+          }
+        ]
+        """
+        let decoded = AutonomousLoopPersistence.decodeIterations(legacyJSON)
+        let first = try #require(decoded.first)
+        #expect(first.validationOutputExcerpt == nil)
+        #expect(first.validationExitCode == 0)
+    }
+
+    @MainActor
+    @Test func jsonEncoderIncludesValidationOutputExcerptWhenPresent() throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let iteration = AutonomousLoopIteration(
+            index: 0,
+            taskID: "task-output",
+            taskTitle: "Output task",
+            mode: AgentExecutionMode.testBuild.rawValue,
+            status: .validationFailed,
+            detail: "failed",
+            validationCommand: "swift test",
+            validationExitCode: 1,
+            validationOutputExcerpt: "error: snapshot mismatch",
+            occurredAt: Date(timeIntervalSince1970: 5_000)
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let iterationsJSON = try String(data: encoder.encode([iteration]), encoding: .utf8)!
+
+        let record = AutonomousLoopReportRecord(
+            identifier: "report-output",
+            goalID: "goal-output",
+            planID: "plan-output",
+            haltReasonKind: "validationFailureCap",
+            haltReasonLabel: "Validation failure cap (1) reached.",
+            iterationsJSON: iterationsJSON,
+            validationFailureCount: 1
+        )
+        context.insert(record)
+        try context.save()
+
+        let json = AutonomyLoopReportJSON.encode(record)
+        let parsed = try #require(
+            try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        )
+        let iterations = try #require(parsed["iterations"] as? [[String: Any]])
+        let first = try #require(iterations.first)
+        #expect(first["validationOutputExcerpt"] as? String == "error: snapshot mismatch")
+    }
 }

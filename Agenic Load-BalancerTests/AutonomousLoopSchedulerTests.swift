@@ -531,4 +531,46 @@ struct AutonomousLoopSchedulerTests {
         let none = AutonomousLoopPersistence.decodeIterations("[]")
         #expect(none.isEmpty)
     }
+
+    // MARK: - Sprint Q.7: validation output excerpt is captured end-to-end
+
+    @MainActor
+    @Test func runCapturesValidationOutputExcerptForFailedGate() async throws {
+        let container = try Self.makeContainer()
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 1_800_005_000)
+        let plan = Self.seedPlan(
+            modelContext: context,
+            finalValidationCommand: "swift test"
+        )
+        let scheduler = AutonomousLoopScheduler(now: { now })
+        let validationRunner = ScriptedValidationGateRunner(
+            result: ValidationGateResult(
+                command: "swift test",
+                exitCode: 1,
+                outputExcerpt: "XCTAssertEqual failed: \"a\" is not equal to \"b\"",
+                startedAt: now,
+                endedAt: now
+            )
+        )
+
+        _ = await scheduler.run(
+            plan: plan,
+            policy: Self.makePolicy(),
+            projectRootPath: "/tmp/uitest",
+            validationRunner: validationRunner,
+            budget: AutonomousLoopBudget(
+                maxIterations: 8,
+                maxValidationFailures: 1,
+                maxApprovalsBeforeHalt: 1
+            ),
+            modelContext: context
+        )
+
+        let persisted = try context.fetch(FetchDescriptor<AutonomousLoopReportRecord>())
+        let record = try #require(persisted.first)
+        let iterations = AutonomousLoopPersistence.decodeIterations(record.iterationsJSON)
+        let failed = try #require(iterations.first(where: { $0.status == .validationFailed }))
+        #expect(failed.validationOutputExcerpt?.contains("XCTAssertEqual failed") == true)
+    }
 }
