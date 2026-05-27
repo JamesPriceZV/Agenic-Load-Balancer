@@ -730,8 +730,11 @@ struct AutonomyControlCenterView: View {
     /// Sprint Q.5: render persisted scheduler reports so the user can
     /// see the most recent loop walk, its halt reason, and a compact
     /// iteration timeline. Reports are sorted by `endedAt` descending.
+    /// Sprint Q.11: prepend an aggregated statistics chip strip so the
+    /// user gets at-a-glance success-rate / volume / failure signals.
     private var loopHistoryPanel: some View {
         let recent = Array(loopReports.prefix(3))
+        let stats = AutonomyLoopReportStatistics.compute(from: loopReports)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Loop History")
@@ -742,6 +745,7 @@ struct AutonomyControlCenterView: View {
                     .foregroundStyle(.secondary)
             }
             .accessibilityIdentifier("Autonomy.LoopHistory.Header")
+            loopStatisticsStrip(stats)
             ForEach(recent, id: \.identifier) { report in
                 Button {
                     presentedLoopReport = PresentedLoopReport(report: report)
@@ -760,6 +764,73 @@ struct AutonomyControlCenterView: View {
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .accessibilityIdentifier("Autonomy.LoopHistory")
+    }
+
+    /// Sprint Q.11: compact aggregate-metrics strip for the Loop
+    /// History header. Rendered as a row of tinted pills so the user
+    /// can compare success rate / volume / failure signals at a glance.
+    @ViewBuilder
+    private func loopStatisticsStrip(_ stats: AutonomyLoopReportStatistics) -> some View {
+        if stats.totalReports == 0 {
+            EmptyView()
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { statisticPills(stats) }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) { statisticPills(stats) }
+                }
+            }
+            .accessibilityIdentifier("Autonomy.LoopHistory.Statistics")
+        }
+    }
+
+    @ViewBuilder
+    private func statisticPills(_ stats: AutonomyLoopReportStatistics) -> some View {
+        statisticPill(
+            label: "Success",
+            value: stats.successRateLabel,
+            tint: successTint(for: stats.successRate),
+            identifier: "Autonomy.LoopHistory.Statistics.Success"
+        )
+        statisticPill(
+            label: "Avg iter",
+            value: stats.averageIterationsLabel,
+            tint: .blue,
+            identifier: "Autonomy.LoopHistory.Statistics.AvgIter"
+        )
+        statisticPill(
+            label: "7-day",
+            value: "\(stats.reportsInLastSevenDays)",
+            tint: .teal,
+            identifier: "Autonomy.LoopHistory.Statistics.SevenDay"
+        )
+        statisticPill(
+            label: "Fails",
+            value: "\(stats.validationFailureCount)",
+            tint: stats.validationFailureCount > 0 ? .red : .secondary,
+            identifier: "Autonomy.LoopHistory.Statistics.Fails"
+        )
+    }
+
+    private func statisticPill(label: String, value: String, tint: Color, identifier: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption2)
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(tint.opacity(0.12), in: Capsule())
+        .foregroundStyle(tint)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func successTint(for rate: Double?) -> Color {
+        guard let rate else { return .secondary }
+        if rate >= 0.66 { return .green }
+        if rate >= 0.33 { return .orange }
+        return .red
     }
 
     @MainActor
